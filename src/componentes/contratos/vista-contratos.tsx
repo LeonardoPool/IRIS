@@ -160,12 +160,12 @@ export function VistaContratos({ contratosIniciales }: PropiedadesVistaContratos
 
       {/* Filtros y Buscador */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border)] pb-3">
-        <div className="flex items-center gap-2 text-xs font-medium">
+        <div className="flex items-center gap-2 text-xs font-medium overflow-x-auto w-full sm:w-auto scrollbar-none pb-1 sm:pb-0">
           {["todos", "firmado", "enviado_firma", "borrador"].map((est) => (
             <button
               key={est}
               onClick={() => setFiltroEstado(est)}
-              className={`px-3 py-1.5 rounded-lg capitalize transition-colors cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg capitalize transition-colors cursor-pointer whitespace-nowrap ${
                 filtroEstado === est
                   ? "bg-[var(--surface-active)] text-[var(--foreground)] font-bold shadow-xs"
                   : "text-[var(--muted)] hover:text-[var(--foreground)]"

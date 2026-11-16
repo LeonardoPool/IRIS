@@ -58,8 +58,8 @@ export function VistaAnalitica({ reporte }: PropiedadesVistaAnalitica) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center bg-[var(--surface-active)] p-0.5 rounded-lg text-xs font-semibold">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center bg-[var(--surface-active)] p-0.5 rounded-lg text-xs font-semibold overflow-x-auto">
             {[
               { id: "7d", label: "7 Días" },
               { id: "30d", label: "30 Días" },
@@ -71,7 +71,7 @@ export function VistaAnalitica({ reporte }: PropiedadesVistaAnalitica) {
                   setPeriodo(p.id);
                   notificar.info("Filtro actualizado", `Visualizando métricas para: ${p.label}`);
                 }}
-                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                   periodo === p.id
                     ? "bg-[var(--surface)] text-[var(--foreground)] shadow-xs font-bold"
                     : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -82,7 +82,7 @@ export function VistaAnalitica({ reporte }: PropiedadesVistaAnalitica) {
             ))}
           </div>
 
-          <Boton variante="secundario" tamano="sm" onClick={exportarReporte}>
+          <Boton variante="secundario" tamano="sm" onClick={exportarReporte} className="shrink-0">
             <Download className="h-3.5 w-3.5 mr-1" />
             Exportar
           </Boton>
@@ -90,7 +90,7 @@ export function VistaAnalitica({ reporte }: PropiedadesVistaAnalitica) {
       </div>
 
       {/* Tarjetas Principales de KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Tarjeta className="p-5 border-l-4 border-l-[#17191d]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[var(--muted)]">Volumen de Cierre</span>

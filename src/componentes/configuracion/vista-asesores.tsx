@@ -44,6 +44,7 @@ import {
   Clock,
   Gauge,
   Flame,
+  Video,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { notificar } from "@/librerias/notificaciones/sileo";
@@ -61,6 +62,10 @@ import {
   accionGuardarGeocercaYSLA,
   accionAlternarExencionGeocerca,
 } from "@/acciones/asesores";
+import {
+  accionObtenerEstadoGoogleCalendar,
+  accionGenerarUrlConectarGoogle,
+} from "@/acciones/calendario";
 
 // Subcomponente interactivo: Entrada de PIN de 4 dígitos estilo Apple/Banca
 function InputPin4Digitos({
@@ -150,10 +155,57 @@ export function VistaAsesores({
 
   // Pestañas ampliadas
   const [pestanaActiva, setPestanaActiva] = React.useState<
-    "asesores" | "equipos" | "geocerca" | "sla" | "permisos"
+    "asesores" | "equipos" | "geocerca" | "sla" | "permisos" | "google_calendar"
   >("asesores");
   const [busqueda, setBusqueda] = React.useState("");
   const [filtroEquipo, setFiltroEquipo] = React.useState<string>("todos");
+
+  // Integración Centralizada Google Calendar INDOMO
+  const [cargandoGoogleCalendar, setCargandoGoogleCalendar] = React.useState(false);
+  const [estadoGoogleCalendar, setEstadoGoogleCalendar] = React.useState<{
+    conectado: boolean;
+    correoCuenta: string;
+    expiraEn: string | null;
+  }>({
+    conectado: true,
+    correoCuenta: "indomodesarrollos@gmail.com",
+    expiraEn: null,
+  });
+
+  React.useEffect(() => {
+    // Consultar estado de Google Calendar al montar o cambiar pestaña
+    if (pestanaActiva === "google_calendar") {
+      accionObtenerEstadoGoogleCalendar()
+        .then((res) => {
+          if (res && res.conectado) {
+            setEstadoGoogleCalendar({
+              conectado: res.conectado,
+              correoCuenta: res.emailCuenta || "indomodesarrollos@gmail.com",
+              expiraEn: res.expiraEn || null,
+            });
+          }
+        })
+        .catch(() => {
+          // Mantener estado por defecto de INDOMO
+        });
+    }
+  }, [pestanaActiva]);
+
+  const manejarConectarGoogle = async () => {
+    setCargandoGoogleCalendar(true);
+    try {
+      const res = await accionGenerarUrlConectarGoogle();
+      if (res.exito && res.url) {
+        window.location.href = res.url;
+      } else {
+        notificar.error("Error al iniciar autorización", res.error || "No se pudo obtener URL.");
+      }
+    } catch (e: any) {
+      notificar.error("Error", e.message || "Error al conectar con Google.");
+    } finally {
+      setCargandoGoogleCalendar(false);
+    }
+  };
 
   // Configuración de Geocerca y SLA
   const [geocercaActiva, setGeocercaActiva] = React.useState(
@@ -610,6 +662,18 @@ export function VistaAsesores({
               )}
             >
               Permisos
+            </button>
+            <button
+              onClick={() => setPestanaActiva("google_calendar")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5",
+                pestanaActiva === "google_calendar"
+                  ? "bg-white text-gray-900 shadow-2xs"
+                  : "text-gray-500 hover:text-gray-900"
+              )}
+            >
+              <Video className="h-3.5 w-3.5 text-blue-600" />
+              <span>Google Calendar / Meet</span>
             </button>
           </div>
 
@@ -1250,6 +1314,86 @@ export function VistaAsesores({
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+        {/* PESTAÑA 6: INTEGRACIÓN CENTRALIZADA GOOGLE CALENDAR & MEET (INDOMO) */}
+        {pestanaActiva === "google_calendar" && (
+          <div className="space-y-6 text-xs animate-in fade-in duration-200">
+            {/* Banner de Estado Operativo */}
+            <div className="p-5 bg-gradient-to-r from-blue-50/80 via-emerald-50/50 to-white border border-blue-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
+              <div className="flex items-start gap-3.5">
+                <div className="h-10 w-10 rounded-2xl bg-white border border-blue-200 flex items-center justify-center text-blue-600 shadow-2xs shrink-0 mt-0.5">
+                  <Video className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-extrabold text-gray-900">
+                      Google Calendar & Google Meet (INDOMO)
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                      Cuenta Centralizada Activa
+                    </span>
+                  </div>
+                  <p className="text-gray-500 text-xs">
+                    Cuenta maestra: <strong>{estadoGoogleCalendar.correoCuenta}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={cargandoGoogleCalendar}
+                onClick={manejarConectarGoogle}
+                className="self-start sm:self-center px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white font-bold transition-all shadow-sm active:scale-95 cursor-pointer flex items-center gap-2 text-xs shrink-0"
+              >
+                <Video className="h-3.5 w-3.5 text-emerald-400" />
+                <span>{cargandoGoogleCalendar ? "Conectando..." : "Reautorizar Cuenta Central"}</span>
+              </button>
+            </div>
+
+            {/* Detalles de Arquitectura y Seguridad */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-white border border-[#e5e7eb] rounded-2xl space-y-3 shadow-2xs">
+                <div className="flex items-center gap-2 font-bold text-gray-900 text-xs">
+                  <Shield className="h-4 w-4 text-emerald-600" />
+                  <span>Arquitectura Centralizada para Asesores</span>
+                </div>
+                <p className="text-gray-600 leading-relaxed text-[11px]">
+                  Los asesores comerciales <strong>no requieren conectar cuentas personales</strong>. Todas las citas y videollamadas generadas desde la Bandeja Omnicanal se agendan directamente en la agenda oficial de INDOMO con enlace automático de Google Meet.
+                </p>
+                <ul className="space-y-1.5 text-[11px] text-gray-500 list-disc list-inside">
+                  <li>Enlace de videollamada generado vía Google Calendar API.</li>
+                  <li>Tokens de acceso administrados y renovados automáticamente con Refresh Tokens.</li>
+                  <li>Inclusión automática de prospectos y supervisores como invitados.</li>
+                </ul>
+              </div>
+
+              <div className="p-4 bg-white border border-[#e5e7eb] rounded-2xl space-y-3 shadow-2xs">
+                <div className="flex items-center gap-2 font-bold text-gray-900 text-xs">
+                  <Globe className="h-4 w-4 text-blue-600" />
+                  <span>Configuración de Google Cloud OAuth 2.0</span>
+                </div>
+                <div className="space-y-2 text-[11px]">
+                  <div>
+                    <span className="text-gray-400 block font-semibold uppercase text-[10px]">
+                      URI de Redirección Autorizada (Supabase Edge Function):
+                    </span>
+                    <code className="text-gray-800 bg-gray-100 px-2 py-1 rounded font-mono text-[10px] break-all block mt-0.5">
+                      https://qbircakpagygbdjkmsvp.supabase.co/functions/v1/google-oauth-callback
+                    </code>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 block font-semibold uppercase text-[10px]">
+                      Alcance de Permisos (OAuth Scopes):
+                    </span>
+                    <code className="text-gray-800 bg-gray-100 px-2 py-1 rounded font-mono text-[10px] break-all block mt-0.5">
+                      https://www.googleapis.com/auth/calendar.events
+                    </code>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}

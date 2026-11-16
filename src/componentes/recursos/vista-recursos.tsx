@@ -124,10 +124,10 @@ export function VistaRecursos({ respuestasIniciales, archivosIniciales }: Propie
 
       {/* Selector de Pestañas y Buscador */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border)] pb-3">
-        <div className="flex items-center gap-2 text-xs font-medium">
+        <div className="flex items-center gap-2 text-xs font-medium overflow-x-auto w-full sm:w-auto scrollbar-none pb-1 sm:pb-0">
           <button
             onClick={() => setPestaña("respuestas")}
-            className={`px-4 py-2 rounded-lg transition-colors cursor-pointer flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-lg transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               pestaña === "respuestas"
                 ? "bg-[var(--surface-active)] text-[var(--foreground)] font-bold shadow-xs"
                 : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -138,7 +138,7 @@ export function VistaRecursos({ respuestasIniciales, archivosIniciales }: Propie
           </button>
           <button
             onClick={() => setPestaña("archivos")}
-            className={`px-4 py-2 rounded-lg transition-colors cursor-pointer flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-lg transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               pestaña === "archivos"
                 ? "bg-[var(--surface-active)] text-[var(--foreground)] font-bold shadow-xs"
                 : "text-[var(--muted)] hover:text-[var(--foreground)]"

@@ -59,9 +59,9 @@ export async function GET(peticion: NextRequest) {
       return NextResponse.redirect(`${baseUrl}/marketing?error=db_error`);
     }
 
-    return NextResponse.redirect(`${baseUrl}/marketing?calendario=conectado`);
+    return NextResponse.redirect(`${baseUrl}/configuracion?google_calendar=conectado&cuenta=${encodeURIComponent(perfil.email)}`);
   } catch (error: any) {
     console.error("[OAuth Google] Error en flujo de callback:", error);
-    return NextResponse.redirect(`${baseUrl}/marketing?error=${encodeURIComponent(error.message)}`);
+    return NextResponse.redirect(`${baseUrl}/configuracion?error=${encodeURIComponent(error.message)}`);
   }
 }

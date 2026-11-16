@@ -107,8 +107,8 @@ export function VistaOportunidades({
         </div>
       </div>
 
-      {/* Tablero Kanban */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 overflow-x-auto pb-6">
+      {/* Tablero Kanban Responsivo (Swipe fluido en celular, multi-columna en Desktop) */}
+      <div className="flex xl:grid xl:grid-cols-6 gap-4 overflow-x-auto pb-6 snap-x snap-mandatory scrollbar-thin -mx-3 sm:mx-0 px-3 sm:px-0">
         {etapas.map((etapa, indice) => {
           const oportunidadesEtapa = oportunidades.filter((op) => op.etapa_id === etapa.id);
           const totalEtapa = oportunidadesEtapa.reduce(
@@ -122,7 +122,7 @@ export function VistaOportunidades({
           return (
             <div
               key={etapa.id}
-              className="bg-[var(--surface-hover)]/60 border border-[var(--border)] rounded-[var(--radius-lg)] p-3 flex flex-col min-w-[240px] max-h-[80vh]"
+              className="bg-[var(--surface-hover)]/60 border border-[var(--border)] rounded-[var(--radius-lg)] p-3 flex flex-col min-w-[280px] sm:min-w-[300px] xl:min-w-0 flex-1 snap-center max-h-[75vh]"
             >
               {/* Cabecera de Columna */}
               <div className="pb-3 border-b border-[var(--border)] mb-3">

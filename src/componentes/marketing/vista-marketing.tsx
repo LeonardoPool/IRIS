@@ -146,7 +146,7 @@ export function VistaMarketing({
       </div>
 
       {/* Tarjetas de Métricas de Ingesta */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Tarjeta className="p-5 border-l-4 border-l-[#17191d]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[var(--muted)]">Formularios Activos</span>
@@ -197,10 +197,10 @@ export function VistaMarketing({
       </div>
 
       {/* Pestañas de Navegación de Sección */}
-      <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2 text-xs font-medium">
+      <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2 text-xs font-medium overflow-x-auto w-full scrollbar-none">
         <button
           onClick={() => setPestañaActiva("formularios")}
-          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${
+          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
             pestañaActiva === "formularios"
               ? "bg-[var(--surface-raised)] text-[var(--foreground)] font-bold shadow-sm"
               : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -210,7 +210,7 @@ export function VistaMarketing({
         </button>
         <button
           onClick={() => setPestañaActiva("meta")}
-          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${
+          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
             pestañaActiva === "meta"
               ? "bg-[var(--surface-raised)] text-[var(--foreground)] font-bold shadow-sm"
               : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -220,7 +220,7 @@ export function VistaMarketing({
         </button>
         <button
           onClick={() => setPestañaActiva("calendario")}
-          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${
+          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
             pestañaActiva === "calendario"
               ? "bg-[var(--surface-raised)] text-[var(--foreground)] font-bold shadow-sm"
               : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -230,7 +230,7 @@ export function VistaMarketing({
         </button>
         <button
           onClick={() => setPestañaActiva("auditoria")}
-          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer ${
+          className={`px-4 py-2 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
             pestañaActiva === "auditoria"
               ? "bg-[var(--surface-raised)] text-[var(--foreground)] font-bold shadow-sm"
               : "text-[var(--muted)] hover:text-[var(--foreground)]"
