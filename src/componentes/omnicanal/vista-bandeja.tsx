@@ -32,6 +32,8 @@ import {
   SlidersHorizontal,
   MapPin,
   DollarSign,
+  Info,
+  X,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { notificar } from "@/librerias/notificaciones/sileo";
@@ -270,10 +272,18 @@ export function VistaBandeja({
   // Entrada de mensaje y modo
   const [textoEntrada, setTextoEntrada] = React.useState("");
   const [modoNotaInterna, setModoNotaInterna] = React.useState(false);
+  const [mostrarFichaClienteMovil, setMostrarFichaClienteMovil] = React.useState(false);
 
   // Conversación seleccionada
   const conversacionActiva =
     conversaciones.find((c) => c.id === conversacionActivaId) || conversaciones[0];
+
+  const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll al final del chat al cambiar conversación o nuevo mensaje
+  React.useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversacionActivaId, conversacionActiva?.mensajes.length]);
 
   // Filtrado
   const conversacionesFiltradas = conversaciones.filter((c) => {
@@ -347,11 +357,16 @@ export function VistaBandeja({
   };
 
   return (
-    <div className="bg-white border border-[#e5e7eb] rounded-2xl shadow-2xs overflow-hidden flex flex-col h-[calc(100vh-8.5rem)] select-none">
+    <div className="bg-white border-0 lg:border lg:border-[#e5e7eb] rounded-none lg:rounded-2xl shadow-none lg:shadow-2xs overflow-hidden flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100dvh-7rem)] select-none">
       {/* ==================================================================== */}
       {/* 1. BARRA SUPERIOR DE HERRAMIENTAS Y SLA GLOBAL */}
       {/* ==================================================================== */}
-      <div className="h-13 px-4 border-b border-[#e5e7eb] bg-[#fafbfc] flex items-center justify-between shrink-0">
+      <div
+        className={cn(
+          "h-12 px-4 border-b border-[#e5e7eb] bg-[#fafbfc] items-center justify-between shrink-0",
+          vistaMovil === "chat" ? "hidden lg:flex" : "flex"
+        )}
+      >
         <div className="flex items-center gap-2 overflow-x-auto">
           <button
             onClick={() => setFiltroTab("todas")}
@@ -489,37 +504,58 @@ export function VistaBandeja({
           )}
         >
           {/* Cabecera del Chat Activo */}
-          <div className="h-14 px-4 sm:px-6 border-b border-[#e5e7eb] bg-white flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
+          <div className="h-14 px-3 sm:px-6 border-b border-[#e5e7eb] bg-white flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 pr-2">
               {/* Botón Volver en Móvil */}
               <button
                 onClick={() => setVistaMovil("lista")}
-                className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-                aria-label="Volver a la lista"
+                className="lg:hidden px-2.5 py-1.5 -ml-1 rounded-xl text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors flex items-center gap-1 text-xs font-bold shrink-0 cursor-pointer"
+                aria-label="Volver a la lista de chats"
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span className="text-[11px]">Chats</span>
               </button>
 
-              <div className="h-8 w-8 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center font-bold text-gray-700 uppercase text-xs shrink-0">
+              <div className="h-8 w-8 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center font-bold text-emerald-800 uppercase text-xs shrink-0">
                 {conversacionActiva.nombreCliente.charAt(0)}
               </div>
 
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-extrabold text-gray-900">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <h3 className="text-xs font-extrabold text-gray-900 truncate">
                     {conversacionActiva.nombreCliente}
                   </h3>
-                  <span className="hidden sm:inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/50">
-                    En Negociación
+                  <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/50">
+                    SLA {conversacionActiva.minutosSla}m
                   </span>
                 </div>
-                <span className="text-[10px] text-gray-400 block font-mono">
-                  {conversacionActiva.telefono} · WhatsApp Business Cloud
-                </span>
+                <div className="flex items-center gap-1 text-[10px] text-gray-400 font-mono truncate">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="truncate">{conversacionActiva.telefono}</span>
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* Botón de llamada telefónica directa */}
+              <a
+                href={`tel:${conversacionActiva.telefono.replace(/[^\d+]/g, "")}`}
+                className="p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 transition-colors"
+                title="Llamar al cliente"
+              >
+                <Phone className="h-3.5 w-3.5" />
+              </a>
+
+              {/* Botón ver Ficha / Expediente en Móvil y Tablet */}
+              <button
+                type="button"
+                onClick={() => setMostrarFichaClienteMovil(true)}
+                className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 xl:hidden transition-colors cursor-pointer"
+                title="Ver expediente del cliente"
+              >
+                <Info className="h-3.5 w-3.5" />
+              </button>
+
               <span className="hidden md:inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-200">
                 <UserCheck className="h-3.5 w-3.5 text-gray-700" />
                 <span>{conversacionActiva.asesorAsignado.split(" ")[0]} {conversacionActiva.asesorAsignado.split(" ")[1]}</span>
@@ -671,10 +707,11 @@ export function VistaBandeja({
                 </div>
               );
             })}
+            <div ref={messagesEndRef} className="h-1" />
           </div>
 
           {/* PLANTILLAS RÁPIDAS DE RESPUESTA */}
-          <div className="px-4 py-2 bg-white border-t border-[#f1f3f5] flex items-center gap-2 overflow-x-auto text-[11px]">
+          <div className="px-3 sm:px-4 py-1.5 bg-white border-t border-[#f1f3f5] flex items-center gap-2 overflow-x-auto text-[11px] scrollbar-none">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
               <Sparkles className="h-3 w-3 text-amber-500" /> Respuestas:
             </span>
@@ -685,9 +722,9 @@ export function VistaBandeja({
                   "Con gusto, te comparto nuestra disponibilidad de agenda para coordinar una llamada de 15 minutos:"
                 )
               }
-              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium"
+              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px]"
             >
-              📅 Proponer Cita Meet
+              📅 Cita Meet
             </button>
             <button
               type="button"
@@ -696,9 +733,9 @@ export function VistaBandeja({
                   "Los acabados de Torre Aura cuentan con mármol travertino, cocina integral equipada y cancelería de alta resistencia anticiclónica."
                 )
               }
-              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium"
+              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px]"
             >
-              ✨ Memoria de Acabados
+              ✨ Acabados
             </button>
             <button
               type="button"
@@ -707,42 +744,42 @@ export function VistaBandeja({
                   "El enganche inicial requerido es del 20%, con saldo a 18 meses sin intereses durante la obra."
                 )
               }
-              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium"
+              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px]"
             >
-              💳 Plan de Pagos
+              💳 Plan Pagos
             </button>
           </div>
 
-          {/* BARRA DE ENTRADA Y ENVÍO */}
-          <div className="p-3 sm:p-4 bg-white border-t border-[#e5e7eb]">
+          {/* BARRA DE ENTRADA Y ENVÍO MÓVIL Y DESKTOP */}
+          <div className="p-2.5 sm:p-4 bg-white border-t border-[#e5e7eb] sticky bottom-0 z-20 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {/* Toggle de Modo: WhatsApp vs Nota Interna */}
-            <div className="flex items-center gap-2 mb-2.5">
+            <div className="flex items-center gap-2 mb-2">
               <button
                 type="button"
                 onClick={() => setModoNotaInterna(false)}
                 className={cn(
-                  "px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
+                  "px-3 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
                   !modoNotaInterna
                     ? "bg-gray-900 text-white shadow-xs"
                     : "text-gray-500 hover:bg-gray-100"
                 )}
               >
-                <MessageCircle className="h-3.5 w-3.5 text-emerald-400" />
-                <span>Mensaje al Cliente (WhatsApp)</span>
+                <MessageCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                <span>WhatsApp</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setModoNotaInterna(true)}
                 className={cn(
-                  "px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
+                  "px-3 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
                   modoNotaInterna
                     ? "bg-amber-600 text-white shadow-xs"
                     : "text-gray-500 hover:bg-gray-100"
                 )}
               >
-                <Lock className="h-3.5 w-3.5" />
-                <span>Nota Interna (Supervisión)</span>
+                <Lock className="h-3.5 w-3.5 shrink-0" />
+                <span>Nota Interna</span>
               </button>
             </div>
 
@@ -752,13 +789,14 @@ export function VistaBandeja({
                 type="text"
                 value={textoEntrada}
                 onChange={(e) => setTextoEntrada(e.target.value)}
+                enterKeyHint="send"
                 placeholder={
                   modoNotaInterna
-                    ? "Escribir nota privada para el equipo comercial y supervisores..."
-                    : `Responder a ${conversacionActiva.nombreCliente} por WhatsApp Cloud...`
+                    ? "Escribir nota privada para el equipo..."
+                    : `Mensaje a ${conversacionActiva.nombreCliente.split(" ")[0]}...`
                 }
                 className={cn(
-                  "flex-1 px-4 py-2.5 text-xs rounded-xl border focus:outline-none transition-all",
+                  "flex-1 h-11 px-3.5 sm:px-4 text-xs sm:text-sm rounded-xl border focus:outline-none transition-all shadow-2xs",
                   modoNotaInterna
                     ? "bg-amber-50/50 border-amber-300 focus:border-amber-600 text-amber-950 placeholder-amber-700/60"
                     : "bg-[#f8f9fa] border-[#e5e7eb] focus:border-gray-900 focus:bg-white text-gray-900 placeholder-gray-400"
@@ -767,14 +805,15 @@ export function VistaBandeja({
 
               <button
                 type="submit"
+                aria-label="Enviar mensaje"
                 className={cn(
-                  "px-4 py-2.5 text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 shrink-0",
+                  "h-11 w-11 sm:h-11 sm:w-auto sm:px-5 text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95",
                   modoNotaInterna
-                    ? "bg-amber-600 hover:bg-amber-700 text-white"
-                    : "bg-gray-900 hover:bg-black text-white"
+                    ? "bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white"
+                    : "bg-gray-900 hover:bg-black active:bg-black text-white"
                 )}
               >
-                <Send className="h-3.5 w-3.5" />
+                <Send className="h-4 w-4 text-emerald-400 shrink-0" />
                 <span className="hidden sm:inline">
                   {modoNotaInterna ? "Guardar Nota" : "Enviar"}
                 </span>
@@ -874,6 +913,87 @@ export function VistaBandeja({
           </div>
         </div>
       </div>
+
+      {/* MODAL / DRAWER EXPEDIENTE 360° PARA MÓVIL */}
+      {mostrarFichaClienteMovil && (
+        <div className="fixed inset-0 z-50 xl:hidden flex flex-col justify-end">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+            onClick={() => setMostrarFichaClienteMovil(false)}
+          />
+          <div className="relative bg-white rounded-t-3xl p-6 shadow-2xl z-10 max-h-[85vh] overflow-y-auto space-y-4 animate-in slide-in-from-bottom duration-200">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-gray-500">
+                  Expediente Comercial 360°
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  {conversacionActiva.score} pts
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarFichaClienteMovil(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-base font-extrabold text-gray-900">
+                {conversacionActiva.nombreCliente}
+              </h3>
+              <p className="text-xs text-gray-600 font-mono flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                <span>{conversacionActiva.telefono}</span>
+              </p>
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-gray-400" />
+                <span className="truncate">{conversacionActiva.correo}</span>
+              </p>
+            </div>
+
+            {/* Ficha rápida */}
+            <div className="p-3.5 bg-[#f8f9fa] border border-[#e5e7eb] rounded-2xl space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Etapa en Pipeline:</span>
+                <span className="font-bold text-gray-900">{conversacionActiva.etapaEmbudo}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Presupuesto Estimado:</span>
+                <span className="font-mono font-bold text-gray-900">{conversacionActiva.presupuesto}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Interés:</span>
+                <span className="font-bold text-gray-900">{conversacionActiva.interes}</span>
+              </div>
+            </div>
+
+            {/* Acciones directas */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <a
+                href={`tel:${conversacionActiva.telefono.replace(/[^\d+]/g, "")}`}
+                className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-xs"
+              >
+                <Phone className="h-3.5 w-3.5" />
+                <span>Llamar</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setMostrarFichaClienteMovil(false);
+                  insertarPlantilla("Te comparto nuestra disponibilidad para agendar una sesión en Google Meet:");
+                }}
+                className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-gray-900 text-white font-bold text-xs shadow-xs cursor-pointer"
+              >
+                <Calendar className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Cita Meet</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

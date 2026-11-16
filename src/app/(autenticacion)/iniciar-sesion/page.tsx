@@ -11,6 +11,7 @@
 
 import * as React from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Mail,
   Lock,
@@ -127,7 +128,8 @@ export default function PaginaIniciarSesion() {
       }
 
       if (data.session) {
-        router.push("/panel-control");
+        // Asesores ingresan directamente a la bandeja omnicanal de leads
+        router.push("/bandeja");
         router.refresh();
       }
     } catch {
@@ -174,6 +176,7 @@ export default function PaginaIniciarSesion() {
       }
 
       if (data.session) {
+        // Administradores acceden al panel de control general
         router.push("/panel-control");
         router.refresh();
       }
@@ -275,6 +278,21 @@ export default function PaginaIniciarSesion() {
                 Selecciona tu método de autenticación comercial o administrativa.
               </p>
             </div>
+          </div>
+
+          {/* ACCESO RÁPIDO DEDICADO PARA ASESORES */}
+          <div className="p-3 bg-emerald-50/80 border border-emerald-200/70 rounded-2xl flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-bold text-emerald-950">¿Eres Asesor de Ventas?</span>
+            </div>
+            <Link
+              href="/portal-asesor"
+              className="font-extrabold text-emerald-700 hover:text-emerald-950 flex items-center gap-1 hover:underline text-xs"
+            >
+              <span>Abrir Portal Directo</span>
+              <ArrowRight className="h-3 w-3" />
+            </Link>
           </div>
 
           {/* SELECTOR DE MODO DE ACCESO (ASESORES VS ADMINISTRACIÓN) */}

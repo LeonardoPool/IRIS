@@ -77,6 +77,8 @@ export function ArmazonPanel({
   const [menuMovilAbierto, setMenuMovilAbierto] = React.useState(false);
   const [cerrandoSesion, setCerrandoSesion] = React.useState(false);
 
+  const esRutaBandeja = rutaActual.startsWith("/bandeja");
+
   // Cerrar cajón móvil al cambiar de ruta
   React.useEffect(() => {
     setMenuMovilAbierto(false);
@@ -359,14 +361,22 @@ export function ArmazonPanel({
         </header>
 
         {/* CONTENIDO PRINCIPAL */}
-        <main className="flex-1 p-3.5 sm:p-5 lg:p-8 pb-24 lg:pb-8 overflow-y-auto">
+        <main
+          className={cn(
+            "flex-1",
+            esRutaBandeja
+              ? "p-0 lg:p-6 overflow-hidden"
+              : "p-3.5 sm:p-5 lg:p-8 pb-24 lg:pb-8 overflow-y-auto"
+          )}
+        >
           {children}
         </main>
 
         {/* ================================================================== */}
         {/* 4. BARRA DE NAVEGACIÓN INFERIOR PARA SMARTPHONES (PWA ACCESIBILIDAD) */}
         {/* ================================================================== */}
-        <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-md border-t border-[#e5e7eb] flex lg:hidden items-center justify-around px-2 z-30 select-none shadow-lg">
+        {!esRutaBandeja && (
+          <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-md border-t border-[#e5e7eb] flex lg:hidden items-center justify-around px-2 z-30 select-none shadow-lg">
           <Link
             href="/panel-control"
             className={cn(
@@ -420,6 +430,7 @@ export function ArmazonPanel({
             <span className="text-[10px] mt-1 font-medium">Más</span>
           </button>
         </nav>
+        )}
       </div>
     </div>
   );
