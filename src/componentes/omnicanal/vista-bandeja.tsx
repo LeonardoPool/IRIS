@@ -39,10 +39,12 @@ import {
   Loader2,
   PanelRightClose,
   PanelRight,
+  Menu,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { notificar } from "@/librerias/notificaciones/sileo";
 import { accionCrearReunionGoogleMeet } from "@/acciones/calendario";
+import { useVisualViewport } from "@/librerias/hooks/use-visual-viewport";
 import type { Conversacion, Mensaje } from "@/tipos/omnicanal";
 import type { Usuario } from "@/tipos/identidad";
 
@@ -266,6 +268,9 @@ export function VistaBandeja({
   agentesDisponibles?: Usuario[];
   usuarioActualId?: string;
 }) {
+  // Sincronización en tiempo real del viewport visible móvil (iOS / Android)
+  const { altura: alturaViewport, tecladoAbierto, alturaTeclado } = useVisualViewport();
+
   // Lista de conversaciones enriquecidas para demostración operativa
   const [conversaciones, setConversaciones] = React.useState<ConversacionSimulada[]>(CONVERSACIONES_MOCK);
   const [conversacionActivaId, setConversacionActivaId] = React.useState<string>(CONVERSACIONES_MOCK[0].id);
@@ -302,12 +307,15 @@ export function VistaBandeja({
 
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const mensajesContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const cercaDelFondoRef = React.useRef<boolean>(true);
+  const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
 
   // Auto-ajuste de altura dinámico e inteligente estilo WhatsApp Web (evita cortes de texto)
   React.useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      const altura = Math.min(Math.max(textareaRef.current.scrollHeight, 44), 140);
+      const altura = Math.min(Math.max(textareaRef.current.scrollHeight, 42), 120);
       textareaRef.current.style.height = `${altura}px`;
     }
   }, [textoEntrada]);
@@ -316,12 +324,30 @@ export function VistaBandeja({
   const conversacionActiva =
     conversaciones.find((c) => c.id === conversacionActivaId) || conversaciones[0];
 
-  const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
+  // Detector de posición de scroll en el historial
+  const manejarScrollHistorial = () => {
+    const el = mensajesContainerRef.current;
+    if (!el) return;
+    const distancia = el.scrollHeight - el.scrollTop - el.clientHeight;
+    cercaDelFondoRef.current = distancia < 100;
+  };
 
-  // Auto-scroll al final del chat al cambiar conversación o nuevo mensaje
+  // Auto-scroll al final del chat al cambiar conversación o nuevo mensaje si no está leyendo arriba
   React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (cercaDelFondoRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [conversacionActivaId, conversacionActiva?.mensajes.length]);
+
+  // Al abrir el teclado virtual móvil, ajustar suavemente para mantener visible el último mensaje
+  React.useEffect(() => {
+    if (tecladoAbierto) {
+      const timer = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [tecladoAbierto]);
 
   // Manejar selección de archivos desde el explorador
   const manejarSeleccionarArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -520,21 +546,59 @@ export function VistaBandeja({
   };
 
   return (
-    <div className="bg-white border-0 lg:border lg:border-[#e5e7eb] rounded-none lg:rounded-2xl shadow-none lg:shadow-2xs overflow-hidden flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100dvh-7rem)] select-none">
+    <div
+      className="bg-white border-0 lg:border lg:border-[#e5e7eb] rounded-none lg:rounded-2xl shadow-none lg:shadow-2xs overflow-hidden flex flex-col h-[var(--visual-viewport-height,100dvh)] lg:h-[calc(100dvh-7rem)] select-none"
+      style={{
+        height: "var(--visual-viewport-height, 100dvh)",
+        maxHeight: "var(--visual-viewport-height, 100dvh)",
+      }}
+    >
       {/* ==================================================================== */}
-      {/* 1. BARRA SUPERIOR DE HERRAMIENTAS Y SLA GLOBAL */}
+      {/* 1. CABECERA MÓVIL EXCLUSIVA (Lista de Conversaciones) */}
       {/* ==================================================================== */}
       <div
         className={cn(
-          "h-12 px-4 border-b border-[#e5e7eb] bg-[#fafbfc] items-center justify-between shrink-0",
+          "h-14 px-3.5 border-b border-[#e5e7eb] bg-white flex lg:hidden items-center justify-between shrink-0 select-none",
+          vistaMovil === "chat" ? "hidden" : "flex"
+        )}
+      >
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("iris:abrir-menu-movil"))}
+            className="p-2 -ml-1 rounded-xl text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer"
+            aria-label="Abrir menú de navegación"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-extrabold text-gray-900 tracking-tight">Bandeja Omnicanal</span>
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 font-semibold text-[10px]">
+            <Clock className="h-3 w-3 text-emerald-600" />
+            <span>SLA 2.8m</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ==================================================================== */}
+      {/* 2. BARRA DE FILTROS Y SLA GLOBAL */}
+      {/* ==================================================================== */}
+      <div
+        className={cn(
+          "h-11 px-3 sm:px-4 border-b border-[#e5e7eb] bg-[#fafbfc] items-center justify-between shrink-0",
           vistaMovil === "chat" ? "hidden lg:flex" : "flex"
         )}
       >
-        <div className="flex items-center gap-2 overflow-x-auto">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none py-1">
           <button
             onClick={() => setFiltroTab("todas")}
             className={cn(
-              "px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer",
+              "px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0",
               filtroTab === "todas"
                 ? "bg-[#eceef1] text-gray-900 shadow-2xs"
                 : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
@@ -545,7 +609,7 @@ export function VistaBandeja({
           <button
             onClick={() => setFiltroTab("prioritarias")}
             className={cn(
-              "px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer",
+              "px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0",
               filtroTab === "prioritarias"
                 ? "bg-[#eceef1] text-gray-900 shadow-2xs"
                 : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
@@ -556,7 +620,7 @@ export function VistaBandeja({
           <button
             onClick={() => setFiltroTab("no_asignadas")}
             className={cn(
-              "px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer",
+              "px-3 py-1 text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0",
               filtroTab === "no_asignadas"
                 ? "bg-[#eceef1] text-gray-900 shadow-2xs"
                 : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
@@ -566,7 +630,7 @@ export function VistaBandeja({
           </button>
         </div>
 
-        <div className="hidden sm:flex items-center gap-3 text-xs">
+        <div className="hidden sm:flex items-center gap-3 text-xs shrink-0">
           <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200/60 font-semibold text-[11px]">
             <Clock className="h-3.5 w-3.5 text-emerald-600" />
             <span>SLA Objetivo: &lt; 10 min · Promedio: 2.8 min</span>
@@ -662,15 +726,16 @@ export function VistaBandeja({
         {/* ================================================================ */}
         <div
           className={cn(
-            "flex-1 flex flex-col bg-[#f7f8fa]",
+            "flex-1 flex flex-col bg-[#f7f8fa] min-w-0 h-full overflow-hidden relative",
             vistaMovil === "lista" ? "hidden lg:flex" : "flex"
           )}
         >
-          {/* Cabecera del Chat Activo */}
-          <div className="h-14 px-3 sm:px-6 border-b border-[#e5e7eb] bg-white flex items-center justify-between shrink-0">
+          {/* Cabecera del Chat Activo — Fijada de forma permanente en la parte superior sin scroll */}
+          <div className="h-14 px-3 sm:px-6 border-b border-[#e5e7eb] bg-white flex items-center justify-between shrink-0 sticky top-0 z-20 select-none">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0 pr-2">
-              {/* Botón Volver en Móvil */}
+              {/* Botón Volver a la Lista en Móvil */}
               <button
+                type="button"
                 onClick={() => setVistaMovil("lista")}
                 className="lg:hidden px-2.5 py-1.5 -ml-1 rounded-xl text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors flex items-center gap-1 text-xs font-bold shrink-0 cursor-pointer"
                 aria-label="Volver a la lista de chats"
@@ -760,8 +825,12 @@ export function VistaBandeja({
             </div>
           </div>
 
-          {/* HISTORIAL Y FLUJO DE MENSAJES */}
-          <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
+          {/* HISTORIAL Y FLUJO DE MENSAJES (Scroll independiente y protegido con overscroll-contain) */}
+          <div
+            ref={mensajesContainerRef}
+            onScroll={manejarScrollHistorial}
+            className="flex-1 p-3 sm:p-6 overflow-y-auto overscroll-contain space-y-3.5 min-h-0"
+          >
             {/* Aviso de Cifrado y Cumplimiento SLA */}
             <div className="text-center my-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold bg-white border border-[#e5e7eb] text-gray-500 shadow-2xs">
@@ -908,7 +977,12 @@ export function VistaBandeja({
           </div>
 
           {/* PLANTILLAS RÁPIDAS DE RESPUESTA */}
-          <div className="px-3 sm:px-4 py-1.5 bg-white border-t border-[#f1f3f5] flex items-center gap-2 overflow-x-auto text-[11px] scrollbar-none">
+          <div
+            className={cn(
+              "px-3 sm:px-4 bg-white border-t border-[#f1f3f5] flex items-center gap-1.5 overflow-x-auto text-[11px] scrollbar-none shrink-0 select-none",
+              tecladoAbierto ? "py-1" : "py-1.5"
+            )}
+          >
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
               <Sparkles className="h-3 w-3 text-amber-500" /> Respuestas:
             </span>
@@ -919,7 +993,7 @@ export function VistaBandeja({
                   "Con gusto, te comparto nuestra disponibilidad de agenda para coordinar una llamada de 15 minutos:"
                 )
               }
-              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px]"
+              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px] shrink-0"
             >
               📅 Cita Meet
             </button>
@@ -930,7 +1004,7 @@ export function VistaBandeja({
                   "Los acabados de Torre Aura cuentan con mármol travertino, cocina integral equipada y cancelería de alta resistencia anticiclónica."
                 )
               }
-              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px]"
+              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px] shrink-0"
             >
               ✨ Acabados
             </button>
@@ -941,14 +1015,21 @@ export function VistaBandeja({
                   "El enganche inicial requerido es del 20%, con saldo a 18 meses sin intereses durante la obra."
                 )
               }
-              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px]"
+              className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap transition-colors cursor-pointer font-medium text-[11px] shrink-0"
             >
               💳 Plan Pagos
             </button>
           </div>
 
-          {/* BARRA DE ENTRADA Y ENVÍO MÓVIL Y DESKTOP (EXPERIENCIA TIPO WHATSAPP) */}
-          <div className="p-2.5 sm:p-4 bg-white border-t border-[#e5e7eb] sticky bottom-0 z-20 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {/* BARRA DE ENTRADA Y ENVÍO MÓVIL Y DESKTOP (EXPERIENCIA TIPO WHATSAPP NATIVO) */}
+          <div
+            className={cn(
+              "bg-white border-t border-[#e5e7eb] shrink-0 z-20 transition-[padding] duration-150 select-none",
+              tecladoAbierto
+                ? "p-2 pb-2"
+                : "p-2.5 sm:p-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+            )}
+          >
             {/* Input de archivo oculto */}
             <input
               ref={fileInputRef}
@@ -987,19 +1068,19 @@ export function VistaBandeja({
             )}
 
             {/* Barra superior de herramientas del compositor: Modo y accesos rápidos */}
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
+            <div className={cn("flex items-center justify-between", tecladoAbierto ? "mb-1.5" : "mb-2")}>
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setModoNotaInterna(false)}
                   className={cn(
-                    "px-3 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
+                    "px-2.5 py-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
                     !modoNotaInterna
                       ? "bg-gray-900 text-white shadow-xs"
                       : "text-gray-500 hover:bg-gray-100"
                   )}
                 >
-                  <MessageCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                  <MessageCircle className="h-3 w-3 text-emerald-400 shrink-0" />
                   <span>WhatsApp</span>
                 </button>
 
@@ -1007,13 +1088,13 @@ export function VistaBandeja({
                   type="button"
                   onClick={() => setModoNotaInterna(true)}
                   className={cn(
-                    "px-3 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
+                    "px-2.5 py-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5",
                     modoNotaInterna
                       ? "bg-amber-600 text-white shadow-xs"
                       : "text-gray-500 hover:bg-gray-100"
                   )}
                 >
-                  <Lock className="h-3.5 w-3.5 shrink-0" />
+                  <Lock className="h-3 w-3 shrink-0" />
                   <span>Nota Interna</span>
                 </button>
               </div>
@@ -1025,7 +1106,7 @@ export function VistaBandeja({
                     setTituloMeet(`Presentación Inmobiliaria INDOMO • ${conversacionActiva.nombreCliente}`);
                     setModalMeetAbierto(true);
                   }}
-                  className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200/60 transition-colors flex items-center gap-1 cursor-pointer"
+                  className="px-2 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200/60 transition-colors flex items-center gap-1 cursor-pointer"
                   title="Agendar sesión Google Meet"
                 >
                   <Video className="h-3 w-3 text-blue-600" />
@@ -1040,13 +1121,13 @@ export function VistaBandeja({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="h-[46px] w-[46px] rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 flex items-center justify-center shrink-0 transition-colors cursor-pointer mb-0"
+                className="h-[42px] w-[42px] rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 flex items-center justify-center shrink-0 transition-colors cursor-pointer mb-0"
                 title="Adjuntar brochure, cotización o documento"
               >
                 <Paperclip className="h-4 w-4" />
               </button>
 
-              {/* Textarea multilínea con crecimiento dinámico (Enter envía, Shift+Enter salta de línea) */}
+              {/* Textarea multilínea con crecimiento dinámico (Fuente 16px para evitar auto-zoom en iOS Safari) */}
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -1060,12 +1141,16 @@ export function VistaBandeja({
                 }}
                 placeholder={
                   modoNotaInterna
-                    ? "Escribir nota interna del equipo (Shift+Enter para salto de línea)..."
-                    : `Mensaje a ${conversacionActiva.nombreCliente.split(" ")[0]} (Enter para enviar, Shift+Enter para salto)...`
+                    ? "Escribir nota interna del equipo..."
+                    : `Mensaje a ${conversacionActiva.nombreCliente.split(" ")[0]}...`
                 }
+                style={{
+                  fontSize: "16px", // Previene auto-zoom forzado de Safari iOS
+                  touchAction: "manipulation",
+                }}
                 className={cn(
-                  "flex-1 min-h-[46px] max-h-[140px] resize-none py-3 px-3.5 sm:px-4 text-xs sm:text-sm rounded-2xl border transition-all shadow-2xs leading-snug focus:outline-none",
-                  textareaRef.current && textareaRef.current.scrollHeight > 130
+                  "flex-1 min-h-[42px] max-h-[120px] resize-none py-2.5 px-3.5 sm:px-4 text-[16px] sm:text-sm rounded-2xl border transition-all shadow-2xs leading-snug focus:outline-none",
+                  textareaRef.current && textareaRef.current.scrollHeight > 110
                     ? "overflow-y-auto"
                     : "overflow-y-hidden",
                   modoNotaInterna
@@ -1079,7 +1164,7 @@ export function VistaBandeja({
                 type="submit"
                 aria-label="Enviar mensaje"
                 className={cn(
-                  "h-[46px] px-3.5 sm:px-5 text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 mb-0",
+                  "h-[42px] px-3.5 sm:px-5 text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 mb-0",
                   modoNotaInterna
                     ? "bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white"
                     : "bg-gray-900 hover:bg-black active:bg-black text-white"

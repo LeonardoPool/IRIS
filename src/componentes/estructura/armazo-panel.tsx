@@ -104,6 +104,13 @@ export function ArmazonPanel({
 
   const esRutaBandeja = rutaActual.startsWith("/bandeja");
 
+  // Escuchar evento personalizado para abrir menú móvil desde vistas embebidas (ej. Bandeja)
+  React.useEffect(() => {
+    const manejarAbrirMenu = () => setMenuMovilAbierto(true);
+    window.addEventListener("iris:abrir-menu-movil", manejarAbrirMenu);
+    return () => window.removeEventListener("iris:abrir-menu-movil", manejarAbrirMenu);
+  }, []);
+
   // Cerrar cajón móvil al cambiar de ruta
   React.useEffect(() => {
     setMenuMovilAbierto(false);
@@ -125,7 +132,14 @@ export function ArmazonPanel({
   };
 
   return (
-    <div className="min-h-screen flex bg-[#f7f8fa] text-gray-900 font-sans selection:bg-gray-200">
+    <div
+      className={cn(
+        "flex bg-[#f7f8fa] text-gray-900 font-sans selection:bg-gray-200",
+        esRutaBandeja
+          ? "h-[100dvh] max-h-[var(--visual-viewport-height,100dvh)] overflow-hidden"
+          : "min-h-screen"
+      )}
+    >
       {/* ==================================================================== */}
       {/* 1. BARRA LATERAL DESKTOP (lg y superior) — DESPLEGABLE / COLAPSABLE */}
       {/* ==================================================================== */}
@@ -375,9 +389,14 @@ export function ArmazonPanel({
       {/* ==================================================================== */}
       {/* 3. CONTENEDOR PRINCIPAL: CABECERA + CONTENIDO + BARRA INFERIOR MÓVIL */}
       {/* ==================================================================== */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* CABECERA SUPERIOR RESPONSIVA */}
-        <header className="h-16 px-4 sm:px-6 lg:px-8 border-b border-[#e5e7eb] bg-white flex items-center justify-between sticky top-0 z-10 select-none">
+      <div className={cn("flex-1 flex flex-col min-w-0", esRutaBandeja && "h-full overflow-hidden")}>
+        {/* CABECERA SUPERIOR RESPONSIVA (En Bandeja móvil se oculta para maximizar el chat tipo WhatsApp) */}
+        <header
+          className={cn(
+            "h-16 px-4 sm:px-6 lg:px-8 border-b border-[#e5e7eb] bg-white items-center justify-between sticky top-0 z-10 select-none shrink-0",
+            esRutaBandeja ? "hidden lg:flex" : "flex"
+          )}
+        >
           {/* Izquierda: Botón hamburguesa en móvil + Botón colapsar en Desktop + Breadcrumb / Título */}
           <div className="flex items-center gap-2 sm:gap-3">
             <button

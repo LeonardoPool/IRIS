@@ -57,6 +57,13 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
+}
+
+/* Fallback nativo y control de viewport para teclado virtual */
+:root {
+  --visual-viewport-height: 100dvh;
+  --keyboard-height: 0px;
 }
 
 *, *::before, *::after {

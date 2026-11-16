@@ -41,6 +41,8 @@ export async function actualizarSesionSupabase(request: NextRequest) {
   const rutaActual = request.nextUrl.pathname;
   const esRutaPublica =
     rutaActual.startsWith("/iniciar-sesion") ||
+    rutaActual.startsWith("/portal-asesor") ||
+    rutaActual.startsWith("/asesores") ||
     rutaActual.startsWith("/recuperar-clave") ||
     rutaActual.startsWith("/api/medios") ||
     rutaActual.startsWith("/api/webhooks") ||
@@ -57,9 +59,16 @@ export async function actualizarSesionSupabase(request: NextRequest) {
   }
 
   if (user && (rutaActual === "/iniciar-sesion" || rutaActual === "/")) {
-    // Redirige al panel si ya está autenticado
+    // Redirige al panel si ya está autenticado como administrador
     const urlRedireccion = request.nextUrl.clone();
     urlRedireccion.pathname = "/panel-control";
+    return NextResponse.redirect(urlRedireccion);
+  }
+
+  if (user && (rutaActual === "/portal-asesor" || rutaActual === "/asesores")) {
+    // Redirige a la bandeja si ya está autenticado como asesor
+    const urlRedireccion = request.nextUrl.clone();
+    urlRedireccion.pathname = "/bandeja";
     return NextResponse.redirect(urlRedireccion);
   }
 
