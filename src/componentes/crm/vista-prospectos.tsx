@@ -21,24 +21,38 @@ import {
   CheckCircle,
   Clock,
   Sparkles,
+  ArrowRightLeft,
+  UserCheck,
+  X,
 } from "lucide-react";
 import type { Prospecto, OrigenProspecto, EmbudoVenta } from "@/tipos/crm";
+import type { ExpedienteAsesor } from "@/tipos/asesores";
 import { crearProspectoAccion, convertirProspectoAccion } from "@/acciones/crm";
+import { accionReasignarCaso } from "@/acciones/asesores";
+import { notificar } from "@/librerias/notificaciones/sileo";
 
 export function VistaProspectos({
   prospectosIniciales = [],
   origenes = [],
   embudoPredeterminado = null,
+  asesoresDisponibles = [],
 }: {
   prospectosIniciales: Prospecto[];
   origenes: OrigenProspecto[];
   embudoPredeterminado: EmbudoVenta | null;
+  asesoresDisponibles?: ExpedienteAsesor[];
 }) {
   const [prospectos, setProspectos] = React.useState<Prospecto[]>(prospectosIniciales);
   const [filtroEstado, setFiltroEstado] = React.useState<string>("todos");
   const [busqueda, setBusqueda] = React.useState("");
   const [mostrarModalCrear, setMostrarModalCrear] = React.useState(false);
   const [prospectoAConvertir, setProspectoAConvertir] = React.useState<Prospecto | null>(null);
+
+  // Estados para reasignación por supervisores
+  const [prospectoAReasignar, setProspectoAReasignar] = React.useState<Prospecto | null>(null);
+  const [asesorDestinoId, setAsesorDestinoId] = React.useState<string>(asesoresDisponibles[0]?.id || "");
+  const [motivoReasignacion, setMotivoReasignacion] = React.useState("");
+  const [cargandoReasignacion, setCargandoReasignacion] = React.useState(false);
 
   // Estados de formulario de creación
   const [nombre, setNombre] = React.useState("");
@@ -49,7 +63,6 @@ export function VistaProspectos({
   const [origenId, setOrigenId] = React.useState(origenes[0]?.id || "");
   const [puntuacion, setPuntuacion] = React.useState(20);
   const [cargando, setCargando] = React.useState(false);
-  const [mensajeExito, setMensajeExito] = React.useState<string | null>(null);
 
   // Estados de conversión
   const [tituloOportunidad, setTituloOportunidad] = React.useState("");
@@ -70,7 +83,6 @@ export function VistaProspectos({
   const manejarCrear = async (e: React.FormEvent) => {
     e.preventDefault();
     setCargando(true);
-    setMensajeExito(null);
 
     const respuesta = await crearProspectoAccion({
       nombre,
@@ -92,9 +104,9 @@ export function VistaProspectos({
       setTelefono("");
       setEmpresa("");
       setDesarrollo("");
-      setMensajeExito("Prospecto registrado exitosamente.");
+      notificar.exito("Prospecto registrado", `${respuesta.prospecto.nombre} añadido al pipeline.`);
     } else {
-      alert(respuesta.error || "Error al registrar prospecto.");
+      notificar.error("Error al registrar", respuesta.error || "No se pudo registrar el prospecto.");
     }
   };
 
@@ -106,7 +118,7 @@ export function VistaProspectos({
     const primeraEtapa = embudoPredeterminado.etapas?.[0]?.id;
 
     if (!primeraEtapa) {
-      alert("No se encontró una etapa inicial en el embudo comercial.");
+      notificar.aviso("Configuración requerida", "No se encontró una etapa inicial en el embudo comercial.");
       setCargandoConversion(false);
       return;
     }
@@ -118,10 +130,7 @@ export function VistaProspectos({
       crearOportunidad: true,
       tituloOportunidad: tituloOportunidad || `Venta - ${prospectoAConvertir.nombre}`,
       valorEstimado: Number(valorEstimado),
-      moneda: "MXN",
-      embudoId: embudoPredeterminado.id,
-      etapaId: primeraEtapa,
-      agenteAsignadoId: "11111111-1111-1111-1111-111111111111", // ID demo o contexto
+      etapaInicialId: primeraEtapa,
     });
 
     setCargandoConversion(false);
@@ -131,229 +140,127 @@ export function VistaProspectos({
         prospectos.map((p) => (p.id === prospectoAConvertir.id ? { ...p, estado: "convertido" } : p))
       );
       setProspectoAConvertir(null);
-      setMensajeExito("¡Prospecto convertido en Contacto y Oportunidad exitosamente!");
+      notificar.exito("Conversión exitosa", "El prospecto se convirtió a contacto y oportunidad comercial.");
     } else {
-      alert(respuesta.error || "Error al convertir prospecto.");
+      notificar.error("Error al convertir", respuesta.error || "No se pudo completar la conversión.");
+    }
+  };
+
+  const manejarReasignacion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prospectoAReasignar || !asesorDestinoId) {
+      notificar.aviso("Selección requerida", "Debe elegir un asesor destino.");
+      return;
+    }
+
+    setCargandoReasignacion(true);
+
+    const respuesta = await accionReasignarCaso({
+      tipo_caso: "prospecto",
+      caso_id: prospectoAReasignar.id,
+      nuevo_asesor_id: asesorDestinoId,
+      motivo: motivoReasignacion,
+    });
+
+    setCargandoReasignacion(false);
+
+    if (respuesta.exito) {
+      const asesorDestino = asesoresDisponibles.find((a) => a.id === asesorDestinoId);
+      setProspectos(
+        prospectos.map((p) =>
+          p.id === prospectoAReasignar.id
+            ? { ...p, agente_asignado_id: asesorDestinoId, agente_asignado: asesorDestino as any }
+            : p
+        )
+      );
+      notificar.exito("Caso Reasignado", respuesta.mensaje);
+      setProspectoAReasignar(null);
+      setMotivoReasignacion("");
+    } else {
+      notificar.error("Error al reasignar", respuesta.error);
     }
   };
 
   return (
-    <div className="space-y-8 max-w-6xl">
-      {/* Encabezado */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-[var(--border)] pb-6">
+    <div className="space-y-6">
+      {/* 1. Cabecera y botón principal */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-xs font-semibold tracking-wider uppercase text-[var(--azul-apagado)]">
-            Atracción y Captura
-          </span>
-          <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)] mt-1">
+          <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">
             Gestión de Prospectos (Leads)
           </h1>
-          <p className="text-xs text-[var(--muted)] mt-1">
-            Capture, califique y convierta prospectos preservando la trazabilidad de su canal de origen.
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
+            Calificación, distribución supervisada y avance en el embudo comercial.
           </p>
         </div>
 
-        <Boton variante="primario" tamano="sm" onClick={() => setMostrarModalCrear(true)}>
+        <button
+          onClick={() => setMostrarModalCrear(true)}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
+        >
           <Plus className="h-4 w-4" />
           <span>Nuevo Prospecto</span>
-        </Boton>
+        </button>
       </div>
 
-      {mensajeExito && (
-        <div className="p-4 bg-[var(--success-background)] border border-[var(--success-border)] rounded-[var(--radius-md)] flex items-center gap-2.5 text-xs text-[var(--success)] font-medium animate-in fade-in">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          <span>{mensajeExito}</span>
-        </div>
-      )}
+      {/* 2. Tarjeta con filtros y tabla */}
+      <div className="bg-white border border-[#e5e7eb] rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
+        {/* Barra de Búsqueda y Filtros de Estado */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f1f3f5] pb-4">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            {["todos", "nuevo", "contactado", "calificado", "convertido", "descalificado"].map((est) => (
+              <button
+                key={est}
+                onClick={() => setFiltroEstado(est)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize whitespace-nowrap transition-colors ${
+                  filtroEstado === est
+                    ? "bg-[#eceef1] text-gray-900 font-bold"
+                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+                }`}
+              >
+                {est}
+              </button>
+            ))}
+          </div>
 
-      {/* Modal / Formulario de Creación */}
-      {mostrarModalCrear && (
-        <Tarjeta className="border-[var(--azul-apagado)] bg-[var(--surface-hover)]/30 animate-in fade-in duration-200">
-          <CabeceraTarjeta>
-            <TituloTarjeta>Registrar Nuevo Prospecto</TituloTarjeta>
-            <DescripcionTarjeta>Ingrese los datos de contacto y canal de adquisición del prospecto.</DescripcionTarjeta>
-          </CabeceraTarjeta>
-          <ContenidoTarjeta>
-            <form onSubmit={manejarCrear} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <CampoTexto
-                  etiqueta="Nombre Completo *"
-                  placeholder="Ej. Roberto Morales"
-                  value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                  required
-                />
-                <CampoTexto
-                  etiqueta="Teléfono Principal (WhatsApp)"
-                  placeholder="+52 998 123 4567"
-                  value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <CampoTexto
-                  etiqueta="Correo Electrónico"
-                  type="email"
-                  placeholder="roberto.morales@empresa.com"
-                  value={correo}
-                  onChange={(e) => setCorreo(e.target.value)}
-                />
-                <CampoTexto
-                  etiqueta="Empresa (Opcional)"
-                  placeholder="Ej. Grupo Hotelero Maya"
-                  value={empresa}
-                  onChange={(e) => setEmpresa(e.target.value)}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <CampoTexto
-                  etiqueta="Desarrollo o Propiedad de Interés"
-                  placeholder="Ej. Villa Paraíso Riviera Lote 14"
-                  value={desarrollo}
-                  onChange={(e) => setDesarrollo(e.target.value)}
-                />
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold tracking-wide text-[var(--muted)]">
-                    Canal de Origen *
-                  </label>
-                  <select
-                    className="h-10 px-3 text-sm bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-md)] text-[var(--foreground)]"
-                    value={origenId}
-                    onChange={(e) => setOrigenId(e.target.value)}
-                  >
-                    {origenes.map((orig) => (
-                      <option key={orig.id} value={orig.id}>
-                        {orig.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-[var(--border-subtle)]">
-                <Boton type="button" variante="fantasma" tamano="sm" onClick={() => setMostrarModalCrear(false)}>
-                  Cancelar
-                </Boton>
-                <Boton type="submit" variante="primario" tamano="sm" cargando={cargando}>
-                  Guardar Prospecto
-                </Boton>
-              </div>
-            </form>
-          </ContenidoTarjeta>
-        </Tarjeta>
-      )}
-
-      {/* Modal de Conversión */}
-      {prospectoAConvertir && (
-        <Tarjeta className="border-[var(--success-border)] bg-[var(--success-background)]/20 animate-in fade-in duration-200">
-          <CabeceraTarjeta>
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-[var(--success)]" />
-              <TituloTarjeta>Convertir Prospecto a Oportunidad Comercial</TituloTarjeta>
-            </div>
-            <DescripcionTarjeta>
-              Se creará un registro de Contacto unificado y se abrirá una Oportunidad en el Embudo de Ventas.
-            </DescripcionTarjeta>
-          </CabeceraTarjeta>
-          <ContenidoTarjeta>
-            <form onSubmit={manejarConversion} className="space-y-4">
-              <div className="p-3 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-md)] text-xs space-y-1">
-                <p><strong>Prospecto:</strong> {prospectoAConvertir.nombre}</p>
-                <p><strong>Contacto:</strong> {prospectoAConvertir.telefono || prospectoAConvertir.correo_electronico || "Sin contacto"}</p>
-                {prospectoAConvertir.desarrollo_interes && (
-                  <p><strong>Interés:</strong> {prospectoAConvertir.desarrollo_interes}</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <CampoTexto
-                  etiqueta="Título de la Oportunidad *"
-                  placeholder={`Venta - ${prospectoAConvertir.nombre}`}
-                  value={tituloOportunidad}
-                  onChange={(e) => setTituloOportunidad(e.target.value)}
-                  required
-                />
-                <CampoTexto
-                  etiqueta="Valor Estimado ($ MXN) *"
-                  type="number"
-                  placeholder="2500000"
-                  value={valorEstimado.toString()}
-                  onChange={(e) => setValorEstimado(Number(e.target.value))}
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <Boton type="button" variante="fantasma" tamano="sm" onClick={() => setProspectoAConvertir(null)}>
-                  Cancelar
-                </Boton>
-                <Boton type="submit" variante="acento" tamano="sm" cargando={cargandoConversion}>
-                  Confirmar Conversión
-                </Boton>
-              </div>
-            </form>
-          </ContenidoTarjeta>
-        </Tarjeta>
-      )}
-
-      {/* Barra de Filtros y Búsqueda */}
-      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-        <div className="relative flex-1 w-full sm:max-w-md">
-          <Search className="h-4 w-4 text-[var(--muted-light)] absolute left-3.5 top-3" />
-          <input
-            className="h-10 w-full pl-9 pr-4 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-md)] placeholder:text-[var(--muted-light)] focus:outline-none focus:ring-1 focus:ring-[var(--azul-apagado)]"
-            placeholder="Buscar por nombre, correo o teléfono..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-          />
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar por nombre, correo..."
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white transition-all text-gray-900 placeholder-gray-400"
+            />
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-          {["todos", "nuevo", "contactado", "calificado", "convertido"].map((est) => (
-            <button
-              key={est}
-              onClick={() => setFiltroEstado(est)}
-              className={`px-3 py-1.5 text-xs rounded-[var(--radius-sm)] font-medium capitalize transition-colors whitespace-nowrap cursor-pointer ${
-                filtroEstado === est
-                  ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
-                  : "bg-[var(--surface)] text-[var(--muted)] border border-[var(--border)] hover:bg-[var(--surface-hover)]"
-              }`}
-            >
-              {est}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Tabla / Listado de Prospectos */}
-      <Tarjeta>
-        <div className="overflow-x-auto">
+        {/* Tabla Responsiva */}
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[var(--surface-hover)] border-b border-[var(--border)] text-[var(--muted)] uppercase tracking-wider text-[11px]">
-              <tr>
-                <th className="py-3 px-4 font-semibold">Prospecto</th>
-                <th className="py-3 px-4 font-semibold">Canal de Origen</th>
-                <th className="py-3 px-4 font-semibold">Interés / Desarrollo</th>
-                <th className="py-3 px-4 font-semibold">Puntuación</th>
-                <th className="py-3 px-4 font-semibold">Estado</th>
-                <th className="py-3 px-4 font-semibold text-right">Acción</th>
+            <thead>
+              <tr className="border-b border-[#e5e7eb] text-gray-400 font-semibold uppercase text-[10px] tracking-wider">
+                <th className="py-3 px-4">Prospecto</th>
+                <th className="py-3 px-4">Canal / Origen</th>
+                <th className="py-3 px-4">Desarrollo</th>
+                <th className="py-3 px-4">Puntuación</th>
+                <th className="py-3 px-4">Estado</th>
+                <th className="py-3 px-4 text-right">Supervisión / Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--border-subtle)] text-[var(--foreground)]">
+            <tbody className="divide-y divide-gray-100">
               {prospectosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-xs text-[var(--muted)]">
-                    No se encontraron prospectos con los filtros seleccionados.
+                  <td colSpan={6} className="text-center py-8 text-gray-400">
+                    No hay prospectos que coincidan con la búsqueda.
                   </td>
                 </tr>
               ) : (
                 prospectosFiltrados.map((prospecto) => (
-                  <tr key={prospecto.id} className="hover:bg-[var(--surface-hover)]/50 transition-colors">
+                  <tr key={prospecto.id} className="hover:bg-gray-50/70 transition-colors">
                     <td className="py-3.5 px-4">
-                      <div className="font-semibold text-sm">{prospecto.nombre}</div>
-                      <div className="text-[11px] text-[var(--muted)] flex items-center gap-2 mt-0.5">
+                      <div className="font-bold text-gray-900">{prospecto.nombre}</div>
+                      <div className="text-[11px] text-gray-400 flex items-center gap-2 mt-0.5">
                         {prospecto.telefono && (
                           <span className="flex items-center gap-1">
                             <Phone className="h-3 w-3" /> {prospecto.telefono}
@@ -366,20 +273,24 @@ export function VistaProspectos({
                         )}
                       </div>
                     </td>
-                    <td className="py-3.5 px-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[var(--azul-tenue)] text-[var(--azul-apagado-hover)]">
+
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-700">
                         {prospecto.origen?.nombre || "Canal Digital"}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 text-[var(--muted)]">
+
+                    <td className="py-3.5 px-4 text-gray-500 whitespace-nowrap">
                       {prospecto.desarrollo_interes || "General"}
                     </td>
-                    <td className="py-3.5 px-4 font-semibold">
-                      <span className={prospecto.puntuacion >= 50 ? "text-[var(--success)]" : "text-[var(--muted)]"}>
+
+                    <td className="py-3.5 px-4 font-semibold whitespace-nowrap">
+                      <span className={prospecto.puntuacion >= 50 ? "text-emerald-600 font-bold" : "text-gray-400"}>
                         {prospecto.puntuacion} pts
                       </span>
                     </td>
-                    <td className="py-3.5 px-4">
+
+                    <td className="py-3.5 px-4 whitespace-nowrap">
                       <PlacaEstado
                         variante={
                           prospecto.estado === "convertido"
@@ -395,23 +306,38 @@ export function VistaProspectos({
                         {prospecto.estado}
                       </PlacaEstado>
                     </td>
-                    <td className="py-3.5 px-4 text-right">
-                      {prospecto.estado !== "convertido" ? (
-                        <Boton
-                          variante="borde"
-                          tamano="sm"
+
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-2">
+                        {/* Botón de reasignación supervisada */}
+                        <button
                           onClick={() => {
-                            setProspectoAConvertir(prospecto);
-                            setTituloOportunidad(`Oportunidad - ${prospecto.nombre}`);
+                            setProspectoAReasignar(prospecto);
+                            setAsesorDestinoId(asesoresDisponibles[0]?.id || "");
                           }}
-                          className="text-[11px] h-7 px-2.5"
+                          className="px-2.5 py-1 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                          title="Reasignar a otro asesor (Supervisión)"
                         >
-                          <span>Convertir</span>
-                          <ArrowRightCircle className="h-3.5 w-3.5 text-[var(--azul-apagado)]" />
-                        </Boton>
-                      ) : (
-                        <span className="text-[11px] text-[var(--success)] font-medium">Convertido</span>
-                      )}
+                          <ArrowRightLeft className="h-3.5 w-3.5 text-gray-500" />
+                          <span>Reasignar</span>
+                        </button>
+
+                        {/* Botón convertir */}
+                        {prospecto.estado !== "convertido" ? (
+                          <button
+                            onClick={() => {
+                              setProspectoAConvertir(prospecto);
+                              setTituloOportunidad(`Oportunidad - ${prospecto.nombre}`);
+                            }}
+                            className="px-2.5 py-1 text-xs font-bold text-gray-900 bg-[#eceef1] hover:bg-gray-200 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <span>Convertir</span>
+                            <ArrowRightCircle className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-emerald-600 font-bold">Convertido</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -419,7 +345,236 @@ export function VistaProspectos({
             </tbody>
           </table>
         </div>
-      </Tarjeta>
+      </div>
+
+      {/* 3. MODAL: REASIGNACIÓN DE CASO (SUPERVISIÓN) */}
+      {prospectoAReasignar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
+              <div className="flex items-center gap-2">
+                <ArrowRightLeft className="h-4 w-4 text-gray-800" />
+                <h3 className="font-extrabold text-sm text-gray-900">
+                  Reasignación Supervisada de Caso
+                </h3>
+              </div>
+              <button
+                onClick={() => setProspectoAReasignar(null)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Transfiera la atención del prospecto <strong className="text-gray-800">{prospectoAReasignar.nombre}</strong> a otro asesor del equipo comercial.
+            </p>
+
+            <form onSubmit={manejarReasignacion} className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">
+                  Nuevo Asesor Asignado *
+                </label>
+                <select
+                  required
+                  value={asesorDestinoId}
+                  onChange={(e) => setAsesorDestinoId(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                >
+                  <option value="">— Seleccionar Asesor —</option>
+                  {asesoresDisponibles.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nombre_completo} {a.equipo ? `(${a.equipo.nombre})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">
+                  Motivo de Reasignación (Auditoría Interna)
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Ej. Reasignado por saturación de cartera o especialización de zona..."
+                  value={motivoReasignacion}
+                  onChange={(e) => setMotivoReasignacion(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#e5e7eb]">
+                <button
+                  type="button"
+                  onClick={() => setProspectoAReasignar(null)}
+                  className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={cargandoReasignacion}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-gray-900 hover:bg-black rounded-xl transition-colors"
+                >
+                  {cargandoReasignacion ? "Reasignando..." : "Confirmar Reasignación"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 4. MODAL: CREAR PROSPECTO */}
+      {mostrarModalCrear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] shadow-2xl w-full max-w-lg p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
+              <h3 className="font-extrabold text-sm text-gray-900">Nuevo Prospecto Comercial</h3>
+              <button
+                onClick={() => setMostrarModalCrear(false)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={manejarCrear} className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Nombre Completo *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Roberto Sánchez"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Correo Electrónico</label>
+                  <input
+                    type="email"
+                    placeholder="roberto@empresa.com"
+                    value={correo}
+                    onChange={(e) => setCorreo(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Teléfono / WhatsApp</label>
+                  <input
+                    type="tel"
+                    placeholder="+52 998 123 4567"
+                    value={telefono}
+                    onChange={(e) => setTelefono(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Empresa / Razón Social</label>
+                  <input
+                    type="text"
+                    placeholder="Inversiones del Golfo"
+                    value={empresa}
+                    onChange={(e) => setEmpresa(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Desarrollo de Interés</label>
+                  <input
+                    type="text"
+                    placeholder="Torre Mirador Fase II"
+                    value={desarrollo}
+                    onChange={(e) => setDesarrollo(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#e5e7eb]">
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalCrear(false)}
+                  className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={cargando}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-gray-900 hover:bg-black rounded-xl transition-colors"
+                >
+                  {cargando ? "Registrando..." : "Guardar Prospecto"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. MODAL: CONVERTIR PROSPECTO */}
+      {prospectoAConvertir && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] shadow-2xl w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-[#e5e7eb] pb-3">
+              <h3 className="font-extrabold text-sm text-gray-900">Convertir a Oportunidad</h3>
+              <button
+                onClick={() => setProspectoAConvertir(null)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={manejarConversion} className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Título de la Oportunidad *</label>
+                <input
+                  type="text"
+                  required
+                  value={tituloOportunidad}
+                  onChange={(e) => setTituloOportunidad(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Valor Estimado ($ MXN) *</label>
+                <input
+                  type="number"
+                  required
+                  value={valorEstimado}
+                  onChange={(e) => setValorEstimado(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 focus:bg-white text-gray-900"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#e5e7eb]">
+                <button
+                  type="button"
+                  onClick={() => setProspectoAConvertir(null)}
+                  className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={cargandoConversion}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-gray-900 hover:bg-black rounded-xl transition-colors"
+                >
+                  {cargandoConversion ? "Convirtiendo..." : "Completar Conversión"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

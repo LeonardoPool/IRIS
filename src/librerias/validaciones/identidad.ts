@@ -18,6 +18,8 @@ export const esquemaInicioSesion = z.object({
 
 export type DatosInicioSesion = z.infer<typeof esquemaInicioSesion>;
 
+const REGEX_UUID_POSTGRES = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 export const esquemaCrearEquipo = z.object({
   nombre: z
     .string()
@@ -34,7 +36,7 @@ export const esquemaCrearEquipo = z.object({
     .regex(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i, "El color debe ser un formato hexadecimal válido (ej. #7185A5)")
     .optional()
     .default("#7185A5"),
-  liderUsuarioId: z.string().uuid("Identificador de líder no válido.").optional().nullable(),
+  liderUsuarioId: z.string().regex(REGEX_UUID_POSTGRES, "Identificador de líder no válido.").optional().nullable(),
 });
 
 export type DatosCrearEquipo = z.infer<typeof esquemaCrearEquipo>;
@@ -50,8 +52,8 @@ export const esquemaInvitarMiembro = z.object({
     .string()
     .min(3, "El nombre debe contener al menos 3 caracteres.")
     .trim(),
-  rolId: z.string().uuid("Debe seleccionar un rol válido."),
-  equipoId: z.string().uuid("Identificador de equipo inválido.").optional().nullable(),
+  rolId: z.string().regex(REGEX_UUID_POSTGRES, "Debe seleccionar un rol válido."),
+  equipoId: z.string().regex(REGEX_UUID_POSTGRES, "Identificador de equipo inválido.").optional().nullable(),
 });
 
 export type DatosInvitarMiembro = z.infer<typeof esquemaInvitarMiembro>;

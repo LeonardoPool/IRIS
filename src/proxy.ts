@@ -20,6 +20,6 @@ export const config = {
      * - favicon.ico (icono de favoritos)
      * - archivos con extensiones (.svg, .png, .jpg, .jpeg, .gif, .webp, .mp4, .webm)
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp4|webm)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp4|webm|json)$).*)",
   ],
 };

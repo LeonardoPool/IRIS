@@ -159,7 +159,8 @@ export class ServicioMarketing {
     }
 
     // 2. Protección contra Spam (Honeypot)
-    if (datos._trampa_honeypot && datos._trampa_honeypot.trim().length > 0) {
+    const trampaHoneypot = datos.honeypot || datos._trampa_honeypot;
+    if (trampaHoneypot && trampaHoneypot.trim().length > 0) {
       await admin.from("registros_captura_lead").insert({
         organizacion_id: formulario.organizacion_id,
         formulario_web_id: formulario.id,
@@ -175,7 +176,7 @@ export class ServicioMarketing {
     }
 
     // 3. Crear o actualizar prospecto en CRM
-    const correo = datos.correoElectronico?.trim().toLowerCase() || null;
+    const correo = (datos.correo || datos.correoElectronico)?.trim().toLowerCase() || null;
     const telefono = datos.telefono?.trim() || null;
 
     // Buscar si ya existe para evitar duplicación

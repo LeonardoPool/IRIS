@@ -3,8 +3,7 @@
 // ==============================================================================
 
 import * as React from "react";
-import { BarraLateral } from "@/componentes/estructura/barra-lateral";
-import { CabeceraSuperior } from "@/componentes/estructura/cabecera-superior";
+import { ArmazonPanel } from "@/componentes/estructura/armazo-panel";
 import { obtenerContextoInquilino } from "@/librerias/seguridad/contexto-inquilino";
 
 export const instant = false;
@@ -17,27 +16,20 @@ export default async function LayoutPanel({ children }: { children: React.ReactN
     contexto = null;
   }
 
-  // Si no hay sesión activa aún (ej. modo desarrollo), usamos valores de demostración estructurados
+  // Si no hay sesión activa aún (ej. modo desarrollo), usamos valores estructurados
   const nombreOrganizacion = contexto?.organizacion?.nombre || "Inmobiliaria Horizonte WYLEN";
-  const nombreUsuario = contexto?.usuario?.nombre_completo || "Leonardo Pool";
-  const correoUsuario = contexto?.usuario?.correo_electronico || "leonardo@horizonte.wylen.io";
+  const nombreUsuario = contexto?.usuario?.nombre_completo || "Administrador IRIS";
+  const correoUsuario = contexto?.usuario?.correo_electronico || "admin@iris.wylen.com";
   const nombreRol = contexto?.rol?.nombre || "Administrador de Organización";
 
   return (
-    <div className="min-h-screen flex bg-[var(--background)]">
-      {/* Barra Lateral de Navegación Fija */}
-      <BarraLateral nombreOrganizacion={nombreOrganizacion} rolUsuario={nombreRol} />
-
-      {/* Área de Contenido Principal */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <CabeceraSuperior
-          nombreOrganizacion={nombreOrganizacion}
-          nombreUsuario={nombreUsuario}
-          correoUsuario={correoUsuario}
-          nombreRol={nombreRol}
-        />
-        <main className="flex-1 p-8 overflow-y-auto">{children}</main>
-      </div>
-    </div>
+    <ArmazonPanel
+      nombreOrganizacion={nombreOrganizacion}
+      nombreUsuario={nombreUsuario}
+      correoUsuario={correoUsuario}
+      nombreRol={nombreRol}
+    >
+      {children}
+    </ArmazonPanel>
   );
 }

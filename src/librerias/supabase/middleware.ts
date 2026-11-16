@@ -45,6 +45,8 @@ export async function actualizarSesionSupabase(request: NextRequest) {
     rutaActual.startsWith("/api/medios") ||
     rutaActual.startsWith("/api/webhooks") ||
     rutaActual.startsWith("/api/formularios") ||
+    rutaActual === "/sw.js" ||
+    rutaActual === "/manifest.webmanifest" ||
     rutaActual === "/";
 
   if (!user && !esRutaPublica) {

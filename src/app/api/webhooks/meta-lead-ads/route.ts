@@ -22,7 +22,10 @@ export async function GET(peticion: NextRequest) {
   const desafio = searchParams.get("hub.challenge");
 
   const tokenEsperado =
-    process.env.META_LEAD_ADS_VERIFY_TOKEN || process.env.META_VERIFY_TOKEN || "iris_meta_verify_token_2026";
+    process.env.META_LEAD_ADS_VERIFY_TOKEN ||
+    process.env.META_VERIFY_TOKEN ||
+    process.env.WHATSAPP_VERIFY_TOKEN ||
+    "iris_token_secreto_2026";
 
   if (modo === "subscribe" && tokenVerificacion === tokenEsperado) {
     console.log("[Meta Lead Ads] Webhook verificado exitosamente por Meta");

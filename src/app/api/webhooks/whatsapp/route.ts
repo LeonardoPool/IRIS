@@ -17,7 +17,10 @@ export async function GET(request: NextRequest) {
   const tokenVerificacion = searchParams.get("hub.verify_token");
   const reto = searchParams.get("hub.challenge");
 
-  const tokenEsperado = process.env.META_WEBHOOK_VERIFY_TOKEN || "token-aleatorio-seguro-verificacion";
+  const tokenEsperado =
+    process.env.WHATSAPP_VERIFY_TOKEN ||
+    process.env.META_WEBHOOK_VERIFY_TOKEN ||
+    "iris_token_secreto_2026";
 
   if (modo === "subscribe" && tokenVerificacion === tokenEsperado) {
     console.log("[WhatsApp Webhook] Verificación de suscripción exitosa.");
