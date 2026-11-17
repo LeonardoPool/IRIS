@@ -174,6 +174,69 @@ export class AdaptadorWhatsAppCloud {
     const idMensajeProveedor = data.messages?.[0]?.id || `wamid.${Date.now()}`;
     return { idMensajeProveedor };
   }
+
+  /**
+   * Envía un mensaje multimedia de imagen con caption opcional a través de Meta WhatsApp Cloud API.
+   * Respeta la ventana de atención de 24 horas y valida errores devueltos por Meta.
+   */
+  async enviarMensajeImagen(
+    proveedorCuentaId: string,
+    tokenAcceso: string,
+    destinatarioTelefono: string,
+    urlImagen: string,
+    caption?: string
+  ): Promise<{ idMensajeProveedor: string }> {
+    // Si no hay token de acceso configurado o es entorno de demostración
+    if (!tokenAcceso || tokenAcceso.includes("TOKEN_DEMO")) {
+      console.log(
+        `[WhatsApp Demo] Enviando imagen a ${destinatarioTelefono}: "${urlImagen}" ${
+          caption ? `con pie: "${caption}"` : ""
+        }`
+      );
+      return { idMensajeProveedor: `wamid.DEMO_IMG_${Date.now()}` };
+    }
+
+    const url = `https://graph.facebook.com/${this.versionGraph}/${proveedorCuentaId}/messages`;
+    const cuerpoPeticion: any = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: destinatarioTelefono,
+      type: "image",
+      image: {
+        link: urlImagen,
+      },
+    };
+
+    if (caption && caption.trim()) {
+      cuerpoPeticion.image.caption = caption.trim();
+    }
+
+    const respuesta = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokenAcceso}`,
+      },
+      body: JSON.stringify(cuerpoPeticion),
+    });
+
+    if (!respuesta.ok) {
+      const errorData = await respuesta.json().catch(() => ({}));
+      const codigoMeta = errorData?.error?.code;
+
+      if (codigoMeta === 131047) {
+        throw new Error(
+          "Restricción de Meta: Han pasado más de 24 horas desde el último mensaje del cliente. Fuera de ventana solo pueden enviarse plantillas aprobadas."
+        );
+      }
+
+      throw new Error(`Error en WhatsApp Cloud API al enviar imagen: ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await respuesta.json();
+    const idMensajeProveedor = data.messages?.[0]?.id || `wamid.${Date.now()}`;
+    return { idMensajeProveedor };
+  }
 }
 
 export const adaptadorWhatsApp = new AdaptadorWhatsAppCloud();

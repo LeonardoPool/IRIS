@@ -40,19 +40,26 @@ import {
   PanelRightClose,
   PanelRight,
   Menu,
+  Layers,
+  AlertTriangle,
+  Play,
+  Pause,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { notificar } from "@/librerias/notificaciones/sileo";
 import { accionCrearReunionGoogleMeet } from "@/acciones/calendario";
+import { accionListarSpeeches, accionEjecutarPasoSpeech } from "@/acciones/speeches";
 import { useVisualViewport } from "@/librerias/hooks/use-visual-viewport";
 import type { Conversacion, Mensaje } from "@/tipos/omnicanal";
 import type { Usuario } from "@/tipos/identidad";
+import type { SpeechComercial } from "@/tipos/speeches";
 
-// Tipos ampliados para simulación de flujos enriquecidos
+// Tipos ampliados para simulación de flujos enriquecidos y speeches comerciales
 interface MensajeSimulado {
   id: string;
   direccion: "entrante" | "saliente" | "interna" | "sistema";
-  tipo: "texto" | "archivo" | "reunion" | "bot";
+  tipo: "texto" | "archivo" | "reunion" | "bot" | "imagen";
   texto: string;
   remitente: string;
   hora: string;
@@ -62,6 +69,11 @@ interface MensajeSimulado {
     enlaceMeet?: string;
     fechaReunion?: string;
     autorNota?: string;
+    urlImagen?: string;
+    speechId?: string;
+    speechNombre?: string;
+    pasoOrden?: number;
+    totalPasos?: number;
   };
 }
 
@@ -305,6 +317,34 @@ export function VistaBandeja({
   const [descripcionMeet, setDescripcionMeet] = React.useState("");
   const [cargandoMeet, setCargandoMeet] = React.useState(false);
 
+  // Speeches Comerciales Multimedia
+  const [modalSpeechesAbierto, setModalSpeechesAbierto] = React.useState(false);
+  const [speechesDisponibles, setSpeechesDisponibles] = React.useState<SpeechComercial[]>([]);
+  const [busquedaSpeech, setBusquedaSpeech] = React.useState("");
+  const [filtroDesarrolloSpeech, setFiltroDesarrolloSpeech] = React.useState("todos");
+  const [speechSeleccionado, setSpeechSeleccionado] = React.useState<SpeechComercial | null>(null);
+
+  // Estado del proceso de transmisión secuencial
+  const [transmisionEnProgreso, setTransmisionEnProgreso] = React.useState(false);
+  const [progresoTransmision, setProgresoTransmision] = React.useState<{
+    pasoActual: number;
+    totalPasos: number;
+    estado: "enviando" | "pausado" | "completado" | "error";
+    error?: string;
+    ejecucionId?: string;
+  } | null>(null);
+
+  // Cargar catálogo de speeches al montar
+  React.useEffect(() => {
+    accionListarSpeeches()
+      .then((res) => {
+        if (res.exito && res.speeches) {
+          setSpeechesDisponibles(res.speeches);
+        }
+      })
+      .catch((_) => {});
+  }, []);
+
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mensajesContainerRef = React.useRef<HTMLDivElement | null>(null);
@@ -348,6 +388,123 @@ export function VistaBandeja({
       return () => clearTimeout(timer);
     }
   }, [tecladoAbierto]);
+
+  // Manejador del envío secuencial paso a paso de un speech comercial
+  const manejarEnviarSpeechSecuencial = async (speech: SpeechComercial) => {
+    if (!speech.elementos || speech.elementos.length === 0) {
+      notificar.aviso("Speech vacío", "Este speech no contiene elementos para enviar.");
+      return;
+    }
+
+    setTransmisionEnProgreso(true);
+    const total = speech.elementos.length;
+    setProgresoTransmision({
+      pasoActual: 1,
+      totalPasos: total,
+      estado: "enviando",
+    });
+
+    let idEjecucion: string | undefined = undefined;
+
+    for (let i = 0; i < total; i++) {
+      const elemento = speech.elementos[i];
+      const pasoNum = i + 1;
+
+      setProgresoTransmision({
+        pasoActual: pasoNum,
+        totalPasos: total,
+        estado: "enviando",
+        ejecucionId: idEjecucion,
+      });
+
+      try {
+        const resultado = await accionEjecutarPasoSpeech({
+          conversacionId: conversacionActiva.id,
+          speechId: speech.id,
+          pasoOrden: pasoNum,
+          ejecucionId: idEjecucion,
+        });
+
+        if (!resultado.exito) {
+          setProgresoTransmision({
+            pasoActual: pasoNum,
+            totalPasos: total,
+            estado: "error",
+            error: resultado.error || `Fallo en el paso ${pasoNum}.`,
+            ejecucionId: idEjecucion,
+          });
+          notificar.error("Error al transmitir speech", resultado.error || "Fallo en el paso.");
+          return;
+        }
+
+        // Agregar mensaje en tiempo real al feed de la conversación
+        const nuevoMensajeLocal: MensajeSimulado = {
+          id: resultado.mensajeLocalId || `msg-sp-${Date.now()}-${pasoNum}`,
+          direccion: "saliente",
+          tipo: elemento.tipo === "texto" ? "texto" : "imagen",
+          texto: elemento.contenido_texto || "",
+          remitente: "Carlos Méndez (Asesor)",
+          hora: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          metadatos: {
+            urlImagen: elemento.url_imagen || undefined,
+            nombreArchivo: elemento.nombre_archivo || undefined,
+            speechId: speech.id,
+            speechNombre: speech.nombre,
+            pasoOrden: pasoNum,
+            totalPasos: total,
+          },
+        };
+
+        setConversaciones((prev) =>
+          prev.map((c) => {
+            if (c.id === conversacionActiva.id) {
+              return {
+                ...c,
+                ultimoMensaje: elemento.contenido_texto || `[Foto: ${speech.desarrollo_inmueble}]`,
+                hora: "Ahora",
+                mensajes: [...c.mensajes, nuevoMensajeLocal],
+              };
+            }
+            return c;
+          })
+        );
+
+        // Retardo natural entre impactos (700ms) para garantizar orden y experiencia fluida
+        if (i < total - 1) {
+          await new Promise((r) => setTimeout(r, 700));
+        }
+      } catch (err: any) {
+        setProgresoTransmision({
+          pasoActual: pasoNum,
+          totalPasos: total,
+          estado: "error",
+          error: err.message,
+          ejecucionId: idEjecucion,
+        });
+        notificar.error("Error en la transmisión", err.message);
+        return;
+      }
+    }
+
+    setProgresoTransmision({
+      pasoActual: total,
+      totalPasos: total,
+      estado: "completado",
+      ejecucionId: idEjecucion,
+    });
+    notificar.exito(
+      "Speech enviado con éxito",
+      `Se transmitieron los ${total} impactos comerciales a ${conversacionActiva.nombreCliente}.`
+    );
+
+    setTimeout(() => {
+      setTransmisionEnProgreso(false);
+      setModalSpeechesAbierto(false);
+      setSpeechSeleccionado(null);
+      setProgresoTransmision(null);
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 1200);
+  };
 
   // Manejar selección de archivos desde el explorador
   const manejarSeleccionarArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -944,7 +1101,39 @@ export function VistaBandeja({
                 );
               }
 
-              // 5. Mensajes Normales de Texto (Entrantes y Salientes)
+              // 5. Mensaje de Imagen o Speech Comercial Multimedia
+              if (m.tipo === "imagen" || m.metadatos?.urlImagen) {
+                return (
+                  <div key={m.id} className="flex flex-col items-end my-2">
+                    <div className="max-w-xs sm:max-w-sm bg-gray-900 text-white rounded-2xl p-2.5 shadow-xs text-xs space-y-2 border border-gray-800 animate-in fade-in slide-in-from-bottom-1 duration-150">
+                      <div className="rounded-xl overflow-hidden bg-black/20 max-h-60 border border-white/5">
+                        <img
+                          src={m.metadatos?.urlImagen || ""}
+                          alt="Imagen enviada de speech"
+                          className="w-full h-auto object-cover"
+                        />
+                      </div>
+                      {m.texto && (
+                        <p className="leading-relaxed px-1 text-gray-100">{m.texto}</p>
+                      )}
+                      <div className="flex items-center justify-between text-[10px] text-gray-400 px-1 pt-0.5 border-t border-white/10">
+                        <span className="text-[9px] font-bold text-emerald-400 flex items-center gap-1">
+                          <Layers className="h-2.5 w-2.5" />
+                          {m.metadatos?.speechNombre
+                            ? `${m.metadatos.speechNombre} (${m.metadatos.pasoOrden}/${m.metadatos.totalPasos})`
+                            : "WhatsApp Media"}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <span>{m.hora}</span>
+                          <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // 6. Mensajes Normales de Texto (Entrantes y Salientes)
               const esSaliente = m.direccion === "saliente";
               return (
                 <div
@@ -962,12 +1151,22 @@ export function VistaBandeja({
                     <p className="whitespace-pre-wrap">{m.texto}</p>
                     <div
                       className={cn(
-                        "text-[10px] mt-1.5 flex items-center justify-end gap-1 font-medium",
+                        "text-[10px] mt-1.5 flex items-center justify-between gap-1 font-medium",
                         esSaliente ? "text-gray-400" : "text-gray-400"
                       )}
                     >
-                      <span>{m.hora}</span>
-                      {esSaliente && <CheckCircle2 className="h-3 w-3 text-emerald-400" />}
+                      {m.metadatos?.speechNombre ? (
+                        <span className="text-[9px] font-bold text-emerald-400 flex items-center gap-1">
+                          <Layers className="h-2.5 w-2.5" />
+                          Paso {m.metadatos.pasoOrden}/{m.metadatos.totalPasos}
+                        </span>
+                      ) : (
+                        <span />
+                      )}
+                      <div className="flex items-center gap-1">
+                        <span>{m.hora}</span>
+                        {esSaliente && <CheckCircle2 className="h-3 w-3 text-emerald-400" />}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -976,7 +1175,7 @@ export function VistaBandeja({
             <div ref={messagesEndRef} className="h-1" />
           </div>
 
-          {/* PLANTILLAS RÁPIDAS DE RESPUESTA */}
+          {/* PLANTILLAS RÁPIDAS Y ACCESOS A SPEECHES */}
           <div
             className={cn(
               "px-3 sm:px-4 bg-white border-t border-[#f1f3f5] flex items-center gap-1.5 overflow-x-auto text-[11px] scrollbar-none shrink-0 select-none",
@@ -986,6 +1185,27 @@ export function VistaBandeja({
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
               <Sparkles className="h-3 w-3 text-amber-500" /> Respuestas:
             </span>
+
+            {/* Acceso Directo al Speech SOLHÁ */}
+            <button
+              type="button"
+              onClick={() => {
+                const solha =
+                  speechesDisponibles.find((s) => s.desarrollo_inmueble.includes("SOLHÁ")) ||
+                  speechesDisponibles[0];
+                if (solha) {
+                  setSpeechSeleccionado(solha);
+                  setModalSpeechesAbierto(true);
+                } else {
+                  setModalSpeechesAbierto(true);
+                }
+              }}
+              className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 whitespace-nowrap transition-colors cursor-pointer font-bold text-[11px] shrink-0 flex items-center gap-1"
+            >
+              <Layers className="h-3 w-3 text-emerald-600" />
+              📑 Speech SOLHÁ
+            </button>
+
             <button
               type="button"
               onClick={() =>
@@ -1100,6 +1320,21 @@ export function VistaBandeja({
               </div>
 
               <div className="flex items-center gap-1">
+                {/* Botón Speeches Comerciales */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSpeechSeleccionado(null);
+                    setModalSpeechesAbierto(true);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200/80 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Seleccionar y transmitir speech comercial multimedia"
+                >
+                  <Layers className="h-3 w-3 text-emerald-600" />
+                  <span>Speeches</span>
+                </button>
+
+                {/* Botón Google Meet */}
                 <button
                   type="button"
                   onClick={() => {
@@ -1360,6 +1595,268 @@ export function VistaBandeja({
                 <span>Cita Meet</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL / DRAWER: SELECTOR Y TRANSMISIÓN DE SPEECHES COMERCIALES */}
+      {/* ==================================================================== */}
+      {modalSpeechesAbierto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl border border-gray-200 overflow-hidden relative">
+            {/* Cabecera del modal */}
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-[#fafbfc] shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                <div className="h-9 w-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-800 shrink-0">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-extrabold text-gray-900 truncate">
+                      {speechSeleccionado ? "Revisión Previa del Speech" : "Speeches Comerciales Multimedia"}
+                    </h3>
+                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
+                      <Check className="h-3 w-3" /> Ventana 24h Activa
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 truncate">
+                    Destinatario: <strong className="text-gray-900">{conversacionActiva.nombreCliente}</strong> ({conversacionActiva.telefono})
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                {speechSeleccionado && !transmisionEnProgreso && (
+                  <button
+                    type="button"
+                    onClick={() => setSpeechSeleccionado(null)}
+                    className="px-2.5 py-1 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer mr-1"
+                  >
+                    ← Volver
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={transmisionEnProgreso}
+                  onClick={() => {
+                    setModalSpeechesAbierto(false);
+                    setSpeechSeleccionado(null);
+                  }}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer disabled:opacity-40"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* VISTA 1: LISTADO Y SELECTOR DE SPEECHES */}
+            {!speechSeleccionado && (
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+                {/* Buscador y Filtros */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar speech por nombre o desarrollo..."
+                      value={busquedaSpeech}
+                      onChange={(e) => setBusquedaSpeech(e.target.value)}
+                      className="w-full h-8 pl-8 pr-3 text-xs border border-gray-200 rounded-xl bg-[#f8f9fa] focus:bg-white focus:outline-none focus:border-gray-900"
+                    />
+                  </div>
+
+                  <select
+                    value={filtroDesarrolloSpeech}
+                    onChange={(e) => setFiltroDesarrolloSpeech(e.target.value)}
+                    className="h-8 px-2.5 text-xs border border-gray-200 rounded-xl bg-[#f8f9fa] text-gray-700 focus:outline-none"
+                  >
+                    <option value="todos">Todos los proyectos</option>
+                    {Array.from(new Set(speechesDisponibles.map((s) => s.desarrollo_inmueble))).map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tarjetas de Speeches Disponibles */}
+                <div className="space-y-3">
+                  {speechesDisponibles
+                    .filter((s) => {
+                      const matchTexto =
+                        s.nombre.toLowerCase().includes(busquedaSpeech.toLowerCase()) ||
+                        s.desarrollo_inmueble.toLowerCase().includes(busquedaSpeech.toLowerCase());
+                      const matchDesarrollo =
+                        filtroDesarrolloSpeech === "todos" || s.desarrollo_inmueble === filtroDesarrolloSpeech;
+                      return matchTexto && matchDesarrollo;
+                    })
+                    .map((sp) => {
+                      const totalPasos = sp.elementos?.length || 0;
+                      const fotosCount = (sp.elementos || []).filter((e) => e.tipo !== "texto").length;
+
+                      return (
+                        <div
+                          key={sp.id}
+                          className="p-4 bg-white border border-gray-200 hover:border-gray-400 rounded-2xl shadow-2xs transition-all space-y-2.5 text-left group"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                                <Building className="h-3 w-3" />
+                                {sp.desarrollo_inmueble}
+                              </span>
+                              <h4 className="text-xs sm:text-sm font-extrabold text-gray-900 mt-1 leading-snug">
+                                {sp.nombre}
+                              </h4>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setSpeechSeleccionado(sp)}
+                              className="px-3.5 py-1.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs active:scale-95"
+                            >
+                              <span>Revisar y Enviar</span>
+                              <Send className="h-3 w-3 text-emerald-400" />
+                            </button>
+                          </div>
+
+                          <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
+                            {sp.descripcion || "Secuencia argumental estructurada para WhatsApp."}
+                          </p>
+
+                          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-gray-100 text-gray-500">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-gray-800 flex items-center gap-1">
+                                <Layers className="h-3 w-3 text-emerald-600" />
+                                {totalPasos} impactos ordenados
+                              </span>
+                              <span>·</span>
+                              <span>{fotosCount} fotografías/renders</span>
+                            </div>
+                            <span className="text-[10px] text-gray-400">{sp.contador_envios} envíos previos</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* VISTA 2: PREVISUALIZACIÓN Y TRANSMISIÓN DEL SPEECH SELECCIONADO */}
+            {speechSeleccionado && (
+              <div className="flex-1 flex flex-col overflow-hidden bg-[#efeae2]">
+                {/* Banner de información de cumplimiento */}
+                <div className="bg-white/95 px-4 py-2 border-b border-gray-200 flex items-center justify-between text-xs shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-gray-700 font-semibold text-[11px]">
+                      Secuencia para: <strong>{speechSeleccionado.desarrollo_inmueble}</strong> ({speechSeleccionado.elementos?.length || 0} pasos)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-gray-400">Meta WhatsApp Cloud API</span>
+                </div>
+
+                {/* Feed de vista previa de los mensajes en orden */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[radial-gradient(#d4cdc4_1px,transparent_1px)] [background-size:16px_16px]">
+                  {(speechSeleccionado.elementos || []).map((el, i) => (
+                    <div key={el.id || i} className="flex flex-col items-end my-1">
+                      <div className="max-w-[85%] bg-[#d9fdd3] rounded-2xl p-2.5 text-xs shadow-xs space-y-1.5 border border-[#c2eec0]">
+                        {el.url_imagen && (
+                          <div className="rounded-xl overflow-hidden bg-black/10 border border-black/5 max-h-48">
+                            <img
+                              src={el.url_imagen}
+                              alt={`Paso ${i + 1}`}
+                              className="w-full h-auto object-cover"
+                            />
+                          </div>
+                        )}
+                        {el.contenido_texto && (
+                          <p className="text-gray-900 text-xs px-1 pt-0.5 leading-relaxed whitespace-pre-wrap">
+                            {el.contenido_texto}
+                          </p>
+                        )}
+                        <div className="flex items-center justify-end gap-1.5 text-[9px] text-gray-500 pr-1">
+                          <span className="font-bold text-emerald-800">Impacto {i + 1} de {speechSeleccionado.elementos?.length}</span>
+                          <span>·</span>
+                          <Check className="h-3 w-3 text-emerald-600" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Panel inferior de control y transmisión */}
+                <div className="p-4 bg-white border-t border-gray-200 shrink-0 space-y-3">
+                  {transmisionEnProgreso && progresoTransmision && (
+                    <div className="space-y-2 bg-emerald-50 p-3 rounded-2xl border border-emerald-200/80 animate-in fade-in">
+                      <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                        <span className="flex items-center gap-1.5">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                          Transmitiendo a WhatsApp: Paso {progresoTransmision.pasoActual} de {progresoTransmision.totalPasos}...
+                        </span>
+                        <span>
+                          {Math.round((progresoTransmision.pasoActual / progresoTransmision.totalPasos) * 100)}%
+                        </span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-emerald-200/60 overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
+                          style={{
+                            width: `${(progresoTransmision.pasoActual / progresoTransmision.totalPasos) * 100}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-emerald-800 block">
+                        Entregando mensajes e imágenes secuenciales con intervalo seguro para evitar saturación en el móvil del cliente.
+                      </span>
+                    </div>
+                  )}
+
+                  {progresoTransmision?.estado === "error" && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-between text-xs text-red-900">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                        <span>{progresoTransmision.error || "Ocurrió un error en la transmisión."}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => manejarEnviarSpeechSecuencial(speechSeleccionado)}
+                        className="px-3 py-1 bg-red-600 text-white rounded-lg font-bold text-[11px] hover:bg-red-700 cursor-pointer"
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  )}
+
+                  {!transmisionEnProgreso && (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs text-gray-500">
+                        <span>Se enviarán <strong>{speechSeleccionado.elementos?.length} mensajes</strong> en orden estricto.</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSpeechSeleccionado(null)}
+                          className="px-4 py-2.5 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => manejarEnviarSpeechSecuencial(speechSeleccionado)}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                        >
+                          <Send className="h-3.5 w-3.5 text-emerald-400" />
+                          <span>Confirmar y Enviar a WhatsApp</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
