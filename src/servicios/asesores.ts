@@ -10,6 +10,7 @@ import {
 import type {
   ExpedienteAsesor,
   DatosCrearAsesor,
+  DatosEditarColaborador,
   DatosReasignarCaso,
   PermisosPersonalizadosAsesor,
 } from "@/tipos/asesores";
@@ -54,6 +55,8 @@ export async function listarAsesoresDeOrganizacion(
         fecha_ingreso,
         fecha_nacimiento,
         supervisor_id,
+        responsable_directo_id,
+        rol_jerarquico,
         equipo_id,
         fecha_creacion,
         fecha_actualizacion
@@ -672,4 +675,223 @@ export async function actualizarExencionGeocercaAsesor({
   }
 
   return data;
+}
+
+/**
+ * Permite a Superadmins, Gerentes y Supervisores editar la información de cuenta y promover de nivel
+ */
+export async function editarCuentaYPromoverColaborador(
+  datos: DatosEditarColaborador,
+  organizacionId: string,
+  usuarioOperadorId: string,
+  contextoOperador?: {
+    correo?: string;
+    rolCodigo?: string;
+    permisos?: string[];
+  }
+): Promise<{ exito: boolean; error?: string }> {
+  const supabase = crearClienteSupabaseAdministrador();
+
+  // 1. Obtener datos del operador
+  const { data: operador } = await supabase
+    .from("usuarios")
+    .select("id, correo_electronico, rol_jerarquico")
+    .eq("id", usuarioOperadorId)
+    .maybeSingle();
+
+  // Obtener membresía del operador en la organización
+  const { data: membresiaOperador } = await supabase
+    .from("membresias")
+    .select("rol:roles(codigo)")
+    .eq("usuario_id", usuarioOperadorId)
+    .eq("organizacion_id", organizacionId)
+    .maybeSingle();
+
+  const correoOperador = (
+    operador?.correo_electronico ||
+    contextoOperador?.correo ||
+    ""
+  ).toLowerCase();
+
+  const rolCodigoMembresia =
+    (membresiaOperador as any)?.rol?.codigo ||
+    contextoOperador?.rolCodigo ||
+    "";
+
+  const rolJerarquicoOperador = operador?.rol_jerarquico || "";
+
+  // Superadministrador: email admin@iris.wylen.com, email contiene admin, rol superadministrador, rol membresía admin o permisos globales
+  const esSuperAdmin =
+    correoOperador === "admin@iris.wylen.com" ||
+    correoOperador.startsWith("admin@") ||
+    rolJerarquicoOperador === "superadministrador" ||
+    rolCodigoMembresia === "administrador_organizacion" ||
+    rolCodigoMembresia === "super_admin" ||
+    rolCodigoMembresia === "admin_organizacion" ||
+    Boolean(contextoOperador?.permisos?.includes("organizacion:administrar")) ||
+    Boolean(contextoOperador?.permisos?.includes("miembros:gestionar"));
+
+  // Gerente Comercial
+  const esGerente =
+    !esSuperAdmin &&
+    (rolJerarquicoOperador === "gerente" ||
+      rolCodigoMembresia === "gerente_ventas" ||
+      Boolean(contextoOperador?.permisos?.includes("equipos:gestionar")));
+
+  // Coordinador / Supervisor
+  const esCoordinador =
+    !esSuperAdmin &&
+    !esGerente &&
+    (rolJerarquicoOperador === "coordinador" ||
+      rolCodigoMembresia === "supervisor_atencion" ||
+      Boolean(contextoOperador?.permisos?.includes("prospectos:todos:actualizar")));
+
+  if (!esSuperAdmin && !esGerente && !esCoordinador) {
+    return {
+      exito: false,
+      error: "No tienes autorización para editar cuentas o promover colaboradores.",
+    };
+  }
+
+  // Si es superadministrador y en la tabla usuarios aún no tenía 'superadministrador', actualizarlo automáticamente
+  if (esSuperAdmin && operador && operador.rol_jerarquico !== "superadministrador") {
+    try {
+      await supabase
+        .from("usuarios")
+        .update({ rol_jerarquico: "superadministrador" })
+        .eq("id", usuarioOperadorId);
+    } catch (errAuto) {
+      console.warn("Advertencia al sincronizar rol de superadministrador:", errAuto);
+    }
+  }
+
+  // 2. Obtener el colaborador actual a modificar
+  const { data: usuarioActual } = await supabase
+    .from("usuarios")
+    .select("id, rol_jerarquico, responsable_directo_id, supervisor_id")
+    .eq("id", datos.usuarioId)
+    .maybeSingle();
+
+  if (!usuarioActual) {
+    return { exito: false, error: "El colaborador no fue encontrado." };
+  }
+
+  // Reglas de promoción de nivel:
+  // - Un coordinador NO puede cambiar a un usuario a 'gerente' ni a 'superadministrador'
+  // - Un gerente no puede crear un 'superadministrador' ni auto-promoverse
+  if (datos.rolJerarquico !== usuarioActual.rol_jerarquico) {
+    if (esCoordinador) {
+      return {
+        exito: false,
+        error: "Los supervisores/coordinadores no pueden cambiar el nivel o tipo de cuenta de un colaborador. Esta acción requiere autorización de un Gerente o Superadministrador.",
+      };
+    }
+    if (esGerente && (datos.rolJerarquico === "superadministrador" || datos.rolJerarquico === "gerente")) {
+      return {
+        exito: false,
+        error: "Un Gerente solo puede promover a Coordinador, Asesor o Atención a Cliente, no a Superadministrador.",
+      };
+    }
+  }
+
+  // Si es coordinador, verificar que el usuario a editar esté a su cargo
+  if (
+    esCoordinador &&
+    usuarioActual.responsable_directo_id !== usuarioOperadorId &&
+    usuarioActual.supervisor_id !== usuarioOperadorId
+  ) {
+    return {
+      exito: false,
+      error: "Solo puedes editar la información de asesores asignados a tu coordinación directa.",
+    };
+  }
+
+  // 3. Actualizar tabla usuarios
+  const nombreCompleto = `${datos.nombres.trim()} ${datos.apellidos.trim()}`;
+  const actualizacionUsuario: Record<string, any> = {
+    nombres: datos.nombres.trim(),
+    apellidos: datos.apellidos.trim(),
+    nombre_completo: nombreCompleto,
+    correo_electronico: datos.correo.trim().toLowerCase(),
+    telefono: datos.telefono?.trim() || null,
+    curp: datos.curp?.trim().toUpperCase() || null,
+    rfc: datos.rfc?.trim().toUpperCase() || null,
+    estado: datos.estado,
+    rol_jerarquico: datos.rolJerarquico,
+    responsable_directo_id: datos.responsableDirectoId || null,
+    supervisor_id: datos.responsableDirectoId || null,
+    equipo_id: datos.equipoId || null,
+    fecha_actualizacion: new Date().toISOString(),
+  };
+
+  const { error: errUpdateUser } = await supabase
+    .from("usuarios")
+    .update(actualizacionUsuario)
+    .eq("id", datos.usuarioId);
+
+  if (errUpdateUser) {
+    return { exito: false, error: `Error al actualizar perfil: ${errUpdateUser.message}` };
+  }
+
+  // 4. Sincronizar membresía y rol si cambió el rol jerárquico
+  if (datos.rolJerarquico !== usuarioActual.rol_jerarquico) {
+    let codigoRol = "agente_ventas";
+    if (datos.rolJerarquico === "coordinador") codigoRol = "supervisor_atencion";
+    else if (datos.rolJerarquico === "gerente") codigoRol = "gerente_ventas";
+    else if (datos.rolJerarquico === "superadministrador") codigoRol = "administrador_organizacion";
+    else if (datos.rolJerarquico === "atencion_cliente") codigoRol = "agente_ventas";
+
+    const { data: rolesEncontrados } = await supabase
+      .from("roles")
+      .select("id")
+      .eq("codigo", codigoRol)
+      .order("es_sistema", { ascending: false })
+      .limit(1);
+
+    const rolObj = rolesEncontrados?.[0];
+    if (rolObj) {
+      const { data: membresiaExistente } = await supabase
+        .from("membresias")
+        .select("id")
+        .eq("usuario_id", datos.usuarioId)
+        .eq("organizacion_id", organizacionId)
+        .maybeSingle();
+
+      if (membresiaExistente) {
+        await supabase
+          .from("membresias")
+          .update({ rol_id: rolObj.id, fecha_actualizacion: new Date().toISOString() })
+          .eq("id", membresiaExistente.id);
+      } else {
+        await supabase.from("membresias").insert({
+          usuario_id: datos.usuarioId,
+          organizacion_id: organizacionId,
+          rol_id: rolObj.id,
+          estado: "activo",
+          es_predeterminada: true,
+        });
+      }
+    }
+  }
+
+  // 5. Actualizar permisos granulares si se proporcionaron
+  if (datos.permisos) {
+    await supabase
+      .from("permisos_personalizados_asesor")
+      .upsert(
+        {
+          organizacion_id: organizacionId,
+          usuario_id: datos.usuarioId,
+          puede_ver_todos_los_prospectos: Boolean(datos.permisos.puede_ver_todos_los_prospectos),
+          puede_reasignar_casos: Boolean(datos.permisos.puede_reasignar_casos),
+          puede_exportar_datos: Boolean(datos.permisos.puede_exportar_datos),
+          puede_ver_analitica_global: Boolean(datos.permisos.puede_ver_analitica_global),
+          puede_crear_oportunidades: Boolean(datos.permisos.puede_crear_oportunidades),
+          fecha_actualizacion: new Date().toISOString(),
+        },
+        { onConflict: "organizacion_id,usuario_id" }
+      );
+  }
+
+  return { exito: true };
 }

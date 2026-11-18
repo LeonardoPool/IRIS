@@ -29,6 +29,8 @@ import {
   PanelLeft,
   ChevronLeft,
   ChevronRight,
+  Flame,
+  Columns,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { crearClienteSupabaseNavegador } from "@/librerias/supabase/cliente";
@@ -36,6 +38,8 @@ import { crearClienteSupabaseNavegador } from "@/librerias/supabase/cliente";
 const elementosNavegacion = [
   { nombre: "Dashboard", href: "/panel-control", icono: LayoutDashboard },
   { nombre: "Bandeja Omnicanal", href: "/bandeja", icono: Inbox, badge: "SLA" },
+  { nombre: "Pool de Leads", href: "/pool-leads", icono: Flame, badge: "Bolsa" },
+  { nombre: "Seguimiento", href: "/seguimiento", icono: Columns },
   { nombre: "Prospectos", href: "/prospectos", icono: Users },
   { nombre: "Marketing y Leads", href: "/marketing", icono: Share2 },
   { nombre: "Contactos", href: "/contactos", icono: Contact },
@@ -50,6 +54,8 @@ const elementosNavegacion = [
 const titulosRutas: Record<string, string> = {
   "/panel-control": "Panel de Control",
   "/bandeja": "Bandeja Omnicanal",
+  "/pool-leads": "Pool de Leads — Bolsa Centralizada",
+  "/seguimiento": "Seguimiento Comercial — Tablero Kanban",
   "/prospectos": "Gestión de Prospectos",
   "/marketing": "Marketing y Formularios",
   "/contactos": "Directorio de Contactos",
@@ -58,7 +64,7 @@ const titulosRutas: Record<string, string> = {
   "/recursos": "Biblioteca de Recursos",
   "/contratos": "Contratos DocuSign",
   "/analitica": "Inteligencia Comercial",
-  "/configuracion": "Configuración y Asesores",
+  "/configuracion": "Configuración y Estructura Organizacional",
 };
 
 interface PropiedadesArmazon {

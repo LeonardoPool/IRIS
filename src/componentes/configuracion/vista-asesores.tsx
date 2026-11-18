@@ -66,6 +66,14 @@ import {
   accionObtenerEstadoGoogleCalendar,
   accionGenerarUrlConectarGoogle,
 } from "@/acciones/calendario";
+import { VistaEstructuraJerarquica } from "@/componentes/configuracion/vista-estructura-jerarquica";
+import { VistaEstadosComerciales } from "@/componentes/configuracion/vista-estados-comerciales";
+import { ModalEditarColaborador } from "@/componentes/configuracion/modal-editar-colaborador";
+import type {
+  EstructuraOrganigrama,
+  AuditoriaTraspasoPersonal,
+} from "@/tipos/estructura-organizacional";
+import type { EstadoComercialLead } from "@/tipos/leads";
 
 // Subcomponente interactivo: Entrada de PIN de 4 dígitos estilo Apple/Banca
 function InputPin4Digitos({
@@ -134,6 +142,9 @@ interface PropiedadesVistaAsesores {
   equiposIniciales: Array<{ id: string; nombre: string; color: string; lider_usuario_id?: string | null }>;
   supervisoresIniciales: Array<{ id: string; nombre_completo: string; correo_electronico: string }>;
   configuracionGeocercaInicial?: ConfiguracionGeocercaYSLA;
+  organigramaInicial?: EstructuraOrganigrama;
+  estadosComercialesIniciales?: EstadoComercialLead[];
+  auditoriaTraspasosInicial?: AuditoriaTraspasoPersonal[];
 }
 
 export function VistaAsesores({
@@ -148,6 +159,9 @@ export function VistaAsesores({
     geocerca_radio_metros: 500,
     sla_minutos_primera_respuesta: 10,
   },
+  organigramaInicial,
+  estadosComercialesIniciales = [],
+  auditoriaTraspasosInicial = [],
 }: PropiedadesVistaAsesores) {
   const [asesores, setAsesores] = React.useState<ExpedienteAsesor[]>(asesoresIniciales);
   const [equipos] = React.useState(equiposIniciales);
@@ -155,7 +169,14 @@ export function VistaAsesores({
 
   // Pestañas ampliadas
   const [pestanaActiva, setPestanaActiva] = React.useState<
-    "asesores" | "equipos" | "geocerca" | "sla" | "permisos" | "google_calendar"
+    | "asesores"
+    | "jerarquia"
+    | "estados_comerciales"
+    | "equipos"
+    | "geocerca"
+    | "sla"
+    | "permisos"
+    | "google_calendar"
   >("asesores");
   const [busqueda, setBusqueda] = React.useState("");
   const [filtroEquipo, setFiltroEquipo] = React.useState<string>("todos");
@@ -259,6 +280,9 @@ export function VistaAsesores({
   // Modal Editar Permisos
   const [asesorEditandoPermisos, setAsesorEditandoPermisos] = React.useState<ExpedienteAsesor | null>(null);
   const [cargandoPermisos, setCargandoPermisos] = React.useState(false);
+
+  // Modal Editar Cuenta y Promover Nivel
+  const [asesorEditandoCuenta, setAsesorEditandoCuenta] = React.useState<ExpedienteAsesor | null>(null);
 
   // Generador de PIN aleatorio
   const generarPinAleatorio = () => {
@@ -618,6 +642,30 @@ export function VistaAsesores({
               Expedientes y Semáforos
             </button>
             <button
+              onClick={() => setPestanaActiva("jerarquia")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1",
+                pestanaActiva === "jerarquia"
+                  ? "bg-white text-gray-900 shadow-2xs"
+                  : "text-gray-500 hover:text-gray-900"
+              )}
+            >
+              <Users className="h-3.5 w-3.5 text-gray-900" />
+              <span>Estructura y Traspasos</span>
+            </button>
+            <button
+              onClick={() => setPestanaActiva("estados_comerciales")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1",
+                pestanaActiva === "estados_comerciales"
+                  ? "bg-white text-gray-900 shadow-2xs"
+                  : "text-gray-500 hover:text-gray-900"
+              )}
+            >
+              <Clock className="h-3.5 w-3.5 text-blue-600" />
+              <span>Estados Comerciales</span>
+            </button>
+            <button
               onClick={() => setPestanaActiva("geocerca")}
               className={cn(
                 "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1",
@@ -823,12 +871,25 @@ export function VistaAsesores({
                         </td>
 
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => abrirEditorPermisos(asesor)}
-                            className="px-2.5 py-1 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
-                          >
-                            Editar
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setAsesorEditandoCuenta(asesor)}
+                              className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                              title="Editar datos, cambiar rol jerárquico y promover nivel"
+                            >
+                              <Shield className="h-3 w-3" />
+                              <span>Editar / Nivel</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => abrirEditorPermisos(asesor)}
+                              className="px-2.5 py-1 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                              title="Configuración de permisos granulares"
+                            >
+                              Permisos
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1397,6 +1458,28 @@ export function VistaAsesores({
             </div>
           </div>
         )}
+
+        {/* PESTAÑA: ESTRUCTURA ORGANIZACIONAL Y TRASPASOS */}
+        {pestanaActiva === "jerarquia" && (
+          <VistaEstructuraJerarquica
+            organigramaInicial={
+              organigramaInicial || {
+                superadministradores: [],
+                gerentes: [],
+                personalAtencion: [],
+                totalColaboradores: 0,
+              }
+            }
+            auditoriaInicial={auditoriaTraspasosInicial || []}
+          />
+        )}
+
+        {/* PESTAÑA: ESTADOS COMERCIALES CONFIGURABLES */}
+        {pestanaActiva === "estados_comerciales" && (
+          <VistaEstadosComerciales
+            estadosIniciales={estadosComercialesIniciales || []}
+          />
+        )}
       </div>
 
       {/* ==================================================================== */}
@@ -1866,6 +1949,33 @@ export function VistaAsesores({
             </div>
           </div>
         </div>
+      )}
+      {/* Modal Editar Cuenta y Promoción de Nivel */}
+      {asesorEditandoCuenta && (
+        <ModalEditarColaborador
+          key={asesorEditandoCuenta.id}
+          colaborador={asesorEditandoCuenta}
+          abierto={Boolean(asesorEditandoCuenta)}
+          alCerrar={() => setAsesorEditandoCuenta(null)}
+          alGuardarExitoso={(datosActualizados) => {
+            setAsesores((prev) =>
+              prev.map((a) =>
+                a.id === asesorEditandoCuenta.id
+                  ? {
+                      ...a,
+                      ...datosActualizados,
+                      nombre_completo: datosActualizados.nombres
+                        ? `${datosActualizados.nombres} ${datosActualizados.apellidos || ""}`.trim()
+                        : a.nombre_completo,
+                    }
+                  : a
+              )
+            );
+            setAsesorEditandoCuenta(null);
+          }}
+          equipos={equipos}
+          supervisores={supervisores}
+        />
       )}
     </div>
   );

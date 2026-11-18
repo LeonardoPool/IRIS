@@ -47,6 +47,8 @@ export interface ExpedienteAsesor extends Usuario {
   permisos_personalizados?: PermisosPersonalizadosAsesor | null;
   total_prospectos_asignados?: number;
   metricas_sla?: MetricasSlaAsesor;
+  rol_jerarquico?: string | null;
+  responsable_directo_id?: string | null;
 }
 
 export interface ConfiguracionGeocercaYSLA {
@@ -78,4 +80,19 @@ export interface DatosReasignarCaso {
   caso_id: string;
   nuevo_asesor_id: string;
   motivo?: string;
+}
+
+export interface DatosEditarColaborador {
+  usuarioId: string;
+  nombres: string;
+  apellidos: string;
+  correo: string;
+  telefono?: string | null;
+  curp?: string | null;
+  rfc?: string | null;
+  estado: "activo" | "inactivo" | "bloqueado";
+  rolJerarquico: "asesor" | "coordinador" | "gerente" | "atencion_cliente" | "superadministrador";
+  responsableDirectoId?: string | null;
+  equipoId?: string | null;
+  permisos?: Partial<PermisosPersonalizadosAsesor>;
 }

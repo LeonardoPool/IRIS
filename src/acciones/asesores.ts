@@ -12,9 +12,11 @@ import {
   actualizarPermisosAsesor,
   guardarConfiguracionGeocercaYSLA,
   actualizarExencionGeocercaAsesor,
+  editarCuentaYPromoverColaborador,
 } from "@/servicios/asesores";
 import type {
   DatosCrearAsesor,
+  DatosEditarColaborador,
   DatosReasignarCaso,
   PermisosPersonalizadosAsesor,
   ConfiguracionGeocercaYSLA,
@@ -276,6 +278,48 @@ export async function accionAlternarExencionGeocerca(asesorId: string, exento: b
     return {
       exito: false,
       error: error.message || "Error al actualizar exención de Geocerca.",
+    };
+  }
+}
+
+/**
+ * Acción: Permite a Superadmin, Gerente y Supervisor editar la información de cuenta y promover de nivel
+ */
+export async function accionEditarCuentaColaborador(datos: DatosEditarColaborador) {
+  try {
+    const contexto = await obtenerContextoInquilino();
+    if (!contexto?.organizacionId || !contexto?.usuarioId) {
+      return {
+        exito: false,
+        error: "Sesión no válida o no autenticada.",
+      };
+    }
+
+    const resultado = await editarCuentaYPromoverColaborador(
+      datos,
+      contexto.organizacionId,
+      contexto.usuarioId,
+      {
+        correo: contexto.usuario?.correo_electronico,
+        rolCodigo: contexto.rol?.codigo,
+        permisos: contexto.permisos,
+      }
+    );
+
+    if (resultado.exito) {
+      revalidatePath("/configuracion");
+      revalidatePath("/pool-leads");
+      revalidatePath("/seguimiento");
+      revalidatePath("/prospectos");
+      revalidatePath("/bandeja");
+    }
+
+    return resultado;
+  } catch (error: any) {
+    console.error("Error en accionEditarCuentaColaborador:", error);
+    return {
+      exito: false,
+      error: error.message || "Error al actualizar la cuenta del colaborador.",
     };
   }
 }

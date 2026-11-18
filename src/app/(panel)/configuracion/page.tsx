@@ -8,6 +8,8 @@ import {
   listarEquiposYSupervisores,
   obtenerConfiguracionGeocercaYSLA,
 } from "@/servicios/asesores";
+import { servicioEstructuraOrganizacional } from "@/servicios/estructura-organizacional";
+import { servicioSeguimientoKanban } from "@/servicios/seguimiento-kanban";
 import { VistaAsesores } from "@/componentes/configuracion/vista-asesores";
 
 export const instant = false;
@@ -16,6 +18,9 @@ export default async function PaginaConfiguracion() {
   let asesores: any[] = [];
   let equipos: any[] = [];
   let supervisores: any[] = [];
+  let organigrama: any = null;
+  let estadosComerciales: any[] = [];
+  let auditoriaTraspasos: any[] = [];
   let configuracionGeocerca = {
     geocerca_activa: true,
     geocerca_nombre_lugar: "Showroom Torre Aura • Cancún",
@@ -27,21 +32,36 @@ export default async function PaginaConfiguracion() {
 
   try {
     const contexto = await obtenerContextoInquilino({ redirigirSiNoAutenticado: false });
-    if (contexto?.organizacionId) {
-      const [listaAsesores, datosEstructura, config] = await Promise.all([
-        listarAsesoresDeOrganizacion(contexto.organizacionId),
-        listarEquiposYSupervisores(contexto.organizacionId),
-        obtenerConfiguracionGeocercaYSLA(contexto.organizacionId),
-      ]);
-      asesores = listaAsesores;
-      equipos = datosEstructura.equipos;
-      supervisores = datosEstructura.supervisores;
-      if (config) {
-        configuracionGeocerca = config;
-      }
+    const orgId = contexto?.organizacionId || "11111111-1111-1111-1111-111111111111";
+
+    const [
+      listaAsesores,
+      datosEstructura,
+      config,
+      datosOrganigrama,
+      datosEstados,
+      datosAuditoria,
+    ] = await Promise.all([
+      listarAsesoresDeOrganizacion(orgId),
+      listarEquiposYSupervisores(orgId),
+      obtenerConfiguracionGeocercaYSLA(orgId),
+      servicioEstructuraOrganizacional.obtenerOrganigrama(orgId),
+      servicioSeguimientoKanban.listarEstadosComerciales(orgId),
+      servicioEstructuraOrganizacional.listarAuditoriaTraspasos(orgId, 25),
+    ]);
+
+    asesores = listaAsesores;
+    equipos = datosEstructura.equipos;
+    supervisores = datosEstructura.supervisores;
+    organigrama = datosOrganigrama;
+    estadosComerciales = datosEstados;
+    auditoriaTraspasos = datosAuditoria;
+
+    if (config) {
+      configuracionGeocerca = config;
     }
   } catch (error) {
-    console.error("Error al cargar datos de asesores y geocerca:", error);
+    console.error("Error al cargar datos de configuración y organigrama:", error);
   }
 
   // Datos base de demostración si la base de datos está vacía
@@ -55,8 +75,8 @@ export default async function PaginaConfiguracion() {
 
   if (supervisores.length === 0) {
     supervisores = [
-      { id: "sup-1", nombre_completo: "Administrador IRIS", correo_electronico: "admin@iris.wylen.com" },
-      { id: "sup-2", nombre_completo: "Carlos Méndez (Líder Ventas)", correo_electronico: "carlos@horizonte.wylen.io" },
+      { id: "sup-1", nombre_completo: "Carlos Méndez (Gerente Comercial)", correo_electronico: "carlos@horizonte.wylen.io" },
+      { id: "sup-2", nombre_completo: "Mariana Rivera (Coordinadora Ventas)", correo_electronico: "mariana@horizonte.wylen.io" },
     ];
   }
 
@@ -66,6 +86,9 @@ export default async function PaginaConfiguracion() {
       equiposIniciales={equipos}
       supervisoresIniciales={supervisores}
       configuracionGeocercaInicial={configuracionGeocerca}
+      organigramaInicial={organigrama}
+      estadosComercialesIniciales={estadosComerciales}
+      auditoriaTraspasosInicial={auditoriaTraspasos}
     />
   );
 }
