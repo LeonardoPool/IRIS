@@ -491,7 +491,7 @@ export async function reasignarCasoAsesor({
     const { error } = await supabaseAdmin
       .from("conversaciones")
       .update({
-        agente_asignado_id: validado.nuevo_asesor_id,
+        agente_asignado_actual_id: validado.nuevo_asesor_id,
         fecha_actualizacion: new Date().toISOString(),
       })
       .eq("id", validado.caso_id)
@@ -504,7 +504,7 @@ export async function reasignarCasoAsesor({
     const { error } = await supabaseAdmin
       .from("oportunidades")
       .update({
-        propietario_id: validado.nuevo_asesor_id,
+        agente_asignado_id: validado.nuevo_asesor_id,
         fecha_actualizacion: new Date().toISOString(),
       })
       .eq("id", validado.caso_id)

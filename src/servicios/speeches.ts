@@ -437,8 +437,9 @@ export class ServicioSpeeches {
     const telefonoDestino = conversacion.identificador_remoto_cliente;
     const cuentaCanal = conversacion.cuenta_canal;
     const credenciales = cuentaCanal?.credenciales_cifradas || {};
-    const tokenAcceso = credenciales.access_token || process.env.META_APP_SECRET || "TOKEN_DEMO";
-    const proveedorCuentaId = cuentaCanal?.proveedor_cuenta_id || "PROV_DEMO";
+    const tokenAcceso = credenciales.access_token || process.env.WHATSAPP_ACCESS_TOKEN || "TOKEN_DEMO";
+    const proveedorCuentaId =
+      cuentaCanal?.proveedor_cuenta_id || process.env.WHATSAPP_PHONE_NUMBER_ID || "PROV_DEMO";
 
     // 2. Control o creación de registro de ejecución en BD
     let idEjecucionActual = ejecucionId;

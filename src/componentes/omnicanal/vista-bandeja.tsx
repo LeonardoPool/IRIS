@@ -6,6 +6,7 @@
 
 import * as React from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Send,
   MessageSquare,
@@ -45,12 +46,18 @@ import {
   Play,
   Pause,
   RefreshCw,
+  Calculator,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { notificar } from "@/librerias/notificaciones/sileo";
 import { accionCrearReunionGoogleMeet } from "@/acciones/calendario";
 import { accionListarSpeeches, accionEjecutarPasoSpeech } from "@/acciones/speeches";
 import { useVisualViewport } from "@/librerias/hooks/use-visual-viewport";
+import {
+  FichaUnificadaCliente,
+  type SolicitudAbrirFichaCliente,
+} from "@/componentes/clientes/ficha-unificada-cliente";
 import type { Conversacion, Mensaje } from "@/tipos/omnicanal";
 import type { Usuario } from "@/tipos/identidad";
 import type { SpeechComercial } from "@/tipos/speeches";
@@ -296,6 +303,7 @@ export function VistaBandeja({
   const [textoEntrada, setTextoEntrada] = React.useState("");
   const [modoNotaInterna, setModoNotaInterna] = React.useState(false);
   const [mostrarFichaClienteMovil, setMostrarFichaClienteMovil] = React.useState(false);
+  const [ficha360Solicitud, setFicha360Solicitud] = React.useState<SolicitudAbrirFichaCliente | null>(null);
   const [mostrarExpedienteDesktop, setMostrarExpedienteDesktop] = React.useState(true);
 
   // Archivo adjunto
@@ -1514,6 +1522,44 @@ export function VistaBandeja({
                 </div>
               </div>
             </div>
+
+            {/* Acciones Contextuales: Ficha 360°, Cotizador y Mi Trabajo */}
+            <div className="space-y-2 pt-2 border-t border-gray-100">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                Acciones Comerciales Rápidas
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setFicha360Solicitud({
+                    nombreRespaldo: conversacionActiva.nombreCliente,
+                    telefono: conversacionActiva.telefono,
+                    correo: conversacionActiva.correo,
+                  })
+                }
+                className="w-full py-2 px-3 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span>Abrir Ficha 360° Completa</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href="/cotizador"
+                  className="py-2 px-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800 text-[11px] font-semibold flex items-center justify-center gap-1"
+                >
+                  <Calculator className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Cotizador</span>
+                </Link>
+                <Link
+                  href="/mi-trabajo?vista=agenda"
+                  className="py-2 px-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800 text-[11px] font-semibold flex items-center justify-center gap-1"
+                >
+                  <Calendar className="h-3.5 w-3.5 text-blue-600" />
+                  <span>Agenda</span>
+                </Link>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -2034,6 +2080,12 @@ export function VistaBandeja({
           </div>
         </div>
       )}
+
+      {/* GAVETA DE FICHA UNIFICADA 360° */}
+      <FichaUnificadaCliente
+        solicitud={ficha360Solicitud}
+        alCerrar={() => setFicha360Solicitud(null)}
+      />
     </div>
   );
 }

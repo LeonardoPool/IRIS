@@ -69,11 +69,18 @@ import {
 import { VistaEstructuraJerarquica } from "@/componentes/configuracion/vista-estructura-jerarquica";
 import { VistaEstadosComerciales } from "@/componentes/configuracion/vista-estados-comerciales";
 import { ModalEditarColaborador } from "@/componentes/configuracion/modal-editar-colaborador";
+import { VistaMarketing } from "@/componentes/marketing/vista-marketing";
 import type {
   EstructuraOrganigrama,
   AuditoriaTraspasoPersonal,
 } from "@/tipos/estructura-organizacional";
 import type { EstadoComercialLead } from "@/tipos/leads";
+import type {
+  FormularioWeb,
+  IntegracionMarketing,
+  RegistroCapturaLead,
+  ConexionCalendario,
+} from "@/tipos/marketing";
 
 // Subcomponente interactivo: Entrada de PIN de 4 dígitos estilo Apple/Banca
 function InputPin4Digitos({
@@ -145,6 +152,14 @@ interface PropiedadesVistaAsesores {
   organigramaInicial?: EstructuraOrganigrama;
   estadosComercialesIniciales?: EstadoComercialLead[];
   auditoriaTraspasosInicial?: AuditoriaTraspasoPersonal[];
+  seccionInicial?: string;
+  datosMarketing?: {
+    formularios: FormularioWeb[];
+    integraciones: IntegracionMarketing[];
+    capturas: RegistroCapturaLead[];
+    conexionCalendario: ConexionCalendario | null;
+    organizacionId: string;
+  };
 }
 
 export function VistaAsesores({
@@ -162,6 +177,8 @@ export function VistaAsesores({
   organigramaInicial,
   estadosComercialesIniciales = [],
   auditoriaTraspasosInicial = [],
+  seccionInicial = "asesores",
+  datosMarketing,
 }: PropiedadesVistaAsesores) {
   const [asesores, setAsesores] = React.useState<ExpedienteAsesor[]>(asesoresIniciales);
   const [equipos] = React.useState(equiposIniciales);
@@ -177,7 +194,8 @@ export function VistaAsesores({
     | "sla"
     | "permisos"
     | "google_calendar"
-  >("asesores");
+    | "marketing"
+  >(seccionInicial === "marketing" ? "marketing" : "asesores");
   const [busqueda, setBusqueda] = React.useState("");
   const [filtroEquipo, setFiltroEquipo] = React.useState<string>("todos");
 
@@ -722,6 +740,18 @@ export function VistaAsesores({
             >
               <Video className="h-3.5 w-3.5 text-blue-600" />
               <span>Google Calendar / Meet</span>
+            </button>
+            <button
+              onClick={() => setPestanaActiva("marketing")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5",
+                pestanaActiva === "marketing"
+                  ? "bg-white text-gray-900 shadow-2xs"
+                  : "text-gray-500 hover:text-gray-900"
+              )}
+            >
+              <Globe className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Captación y Marketing</span>
             </button>
           </div>
 
@@ -1478,6 +1508,17 @@ export function VistaAsesores({
         {pestanaActiva === "estados_comerciales" && (
           <VistaEstadosComerciales
             estadosIniciales={estadosComercialesIniciales || []}
+          />
+        )}
+
+        {/* PESTAÑA: CAPTACIÓN Y MARKETING DIGITAL (FORMULARIOS WEB, META LEAD ADS, WEBHOOKS) */}
+        {pestanaActiva === "marketing" && datosMarketing && (
+          <VistaMarketing
+            formulariosIniciales={datosMarketing.formularios}
+            integracionesIniciales={datosMarketing.integraciones}
+            capturasIniciales={datosMarketing.capturas}
+            conexionCalendario={datosMarketing.conexionCalendario}
+            organizacionId={datosMarketing.organizacionId}
           />
         )}
       </div>

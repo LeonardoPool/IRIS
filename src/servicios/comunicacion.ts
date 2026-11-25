@@ -204,8 +204,11 @@ export class ServicioComunicacion {
 
     // 2. Enviar a través de la API del canal
     const credenciales = conversacion.cuenta_canal?.credenciales_cifradas || {};
-    const tokenAcceso = credenciales.access_token || process.env.META_APP_SECRET || "TOKEN_DEMO";
-    const proveedorCuentaId = conversacion.cuenta_canal.proveedor_cuenta_id;
+    const tokenAcceso = credenciales.access_token || process.env.WHATSAPP_ACCESS_TOKEN || "TOKEN_DEMO";
+    const proveedorCuentaId =
+      conversacion.cuenta_canal?.proveedor_cuenta_id ||
+      process.env.WHATSAPP_PHONE_NUMBER_ID ||
+      "";
 
     const { idMensajeProveedor } = await adaptadorWhatsApp.enviarMensajeTexto(
       proveedorCuentaId,

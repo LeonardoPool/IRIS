@@ -1,8 +1,13 @@
 // ==============================================================================
-// IRIS by WYLEN — PÁGINA DE CONFIGURACIÓN Y ASESORES (SERVER COMPONENT)
+// IRIS by WYLEN — PÁGINA DE ADMINISTRACIÓN Y CONFIGURACIÓN (/configuracion)
 // ==============================================================================
 
+import { redirect } from "next/navigation";
 import { obtenerContextoInquilino } from "@/librerias/seguridad/contexto-inquilino";
+import {
+  puedeAccederConfiguracion,
+  resolverRolJerarquicoEfectivo,
+} from "@/librerias/seguridad/navegacion-rol";
 import {
   listarAsesoresDeOrganizacion,
   listarEquiposYSupervisores,
@@ -10,17 +15,29 @@ import {
 } from "@/servicios/asesores";
 import { servicioEstructuraOrganizacional } from "@/servicios/estructura-organizacional";
 import { servicioSeguimientoKanban } from "@/servicios/seguimiento-kanban";
+import { ServicioMarketing } from "@/servicios/marketing";
 import { VistaAsesores } from "@/componentes/configuracion/vista-asesores";
 
 export const instant = false;
 
-export default async function PaginaConfiguracion() {
+interface PropiedadesPaginaConfiguracion {
+  searchParams: Promise<{
+    seccion?: string;
+  }>;
+}
+
+export default async function PaginaConfiguracion({
+  searchParams,
+}: PropiedadesPaginaConfiguracion) {
+  const params = await searchParams;
+
   let asesores: any[] = [];
   let equipos: any[] = [];
   let supervisores: any[] = [];
   let organigrama: any = null;
   let estadosComerciales: any[] = [];
   let auditoriaTraspasos: any[] = [];
+  let datosMarketing: any = undefined;
   let configuracionGeocerca = {
     geocerca_activa: true,
     geocerca_nombre_lugar: "Showroom Torre Aura • Cancún",
@@ -32,7 +49,16 @@ export default async function PaginaConfiguracion() {
 
   try {
     const contexto = await obtenerContextoInquilino({ redirigirSiNoAutenticado: false });
+    if (contexto) {
+      const rol = resolverRolJerarquicoEfectivo(contexto);
+      if (!puedeAccederConfiguracion(rol, contexto.permisos)) {
+        redirect("/panel-control");
+      }
+    }
+
     const orgId = contexto?.organizacionId || "11111111-1111-1111-1111-111111111111";
+    const usuarioId = contexto?.usuarioId || orgId;
+    const servicioMarketing = new ServicioMarketing();
 
     const [
       listaAsesores,
@@ -41,6 +67,10 @@ export default async function PaginaConfiguracion() {
       datosOrganigrama,
       datosEstados,
       datosAuditoria,
+      formularios,
+      integraciones,
+      capturas,
+      conexionCalendario,
     ] = await Promise.all([
       listarAsesoresDeOrganizacion(orgId),
       listarEquiposYSupervisores(orgId),
@@ -48,6 +78,10 @@ export default async function PaginaConfiguracion() {
       servicioEstructuraOrganizacional.obtenerOrganigrama(orgId),
       servicioSeguimientoKanban.listarEstadosComerciales(orgId),
       servicioEstructuraOrganizacional.listarAuditoriaTraspasos(orgId, 25),
+      servicioMarketing.listarFormulariosWeb(orgId).catch(() => []),
+      servicioMarketing.listarIntegracionesMarketing(orgId).catch(() => []),
+      servicioMarketing.listarCapturasLead(orgId, 50).catch(() => []),
+      servicioMarketing.obtenerConexionCalendario(usuarioId, orgId).catch(() => null),
     ]);
 
     asesores = listaAsesores;
@@ -56,15 +90,24 @@ export default async function PaginaConfiguracion() {
     organigrama = datosOrganigrama;
     estadosComerciales = datosEstados;
     auditoriaTraspasos = datosAuditoria;
+    datosMarketing = {
+      formularios,
+      integraciones,
+      capturas,
+      conexionCalendario,
+      organizacionId: orgId,
+    };
 
     if (config) {
       configuracionGeocerca = config;
     }
   } catch (error) {
+    if ((error as { digest?: string })?.digest?.startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
     console.error("Error al cargar datos de configuración y organigrama:", error);
   }
 
-  // Datos base de demostración si la base de datos está vacía
   if (equipos.length === 0) {
     equipos = [
       { id: "eq-1", nombre: "Ventas Riviera Maya", color: "#10b981" },
@@ -89,6 +132,8 @@ export default async function PaginaConfiguracion() {
       organigramaInicial={organigrama}
       estadosComercialesIniciales={estadosComerciales}
       auditoriaTraspasosInicial={auditoriaTraspasos}
+      seccionInicial={params.seccion || "asesores"}
+      datosMarketing={datosMarketing}
     />
   );
 }

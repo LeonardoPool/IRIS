@@ -166,13 +166,115 @@ export class AdaptadorWhatsAppCloud {
     });
 
     if (!respuesta.ok) {
-      const errorData = await respuesta.json();
+      const errorData = await respuesta.json().catch(() => ({}));
+      const codigoMeta = errorData?.error?.code;
+      if (codigoMeta === 131047) {
+        throw new Error(
+          "VENTANA_24H_EXPIRADA: Han pasado más de 24 horas desde el último mensaje del cliente. Debes enviar una plantilla aprobada por Meta."
+        );
+      }
       throw new Error(`Error en WhatsApp Cloud API: ${JSON.stringify(errorData)}`);
     }
 
     const data = await respuesta.json();
     const idMensajeProveedor = data.messages?.[0]?.id || `wamid.${Date.now()}`;
     return { idMensajeProveedor };
+  }
+
+  /**
+   * Envía una plantilla aprobada por Meta (requerida fuera de la ventana de atención de 24h).
+   */
+  async enviarMensajePlantilla(
+    proveedorCuentaId: string,
+    tokenAcceso: string,
+    destinatarioTelefono: string,
+    nombrePlantilla: string,
+    codigoIdioma: string = "es_MX",
+    parametrosCuerpo: string[] = []
+  ): Promise<{ idMensajeProveedor: string }> {
+    if (!tokenAcceso || tokenAcceso.includes("TOKEN_DEMO") || !proveedorCuentaId || proveedorCuentaId.includes("tu_phone_number_id")) {
+      console.log(
+        `[WhatsApp Demo] Enviando plantilla '${nombrePlantilla}' (${codigoIdioma}) a ${destinatarioTelefono}`
+      );
+      return { idMensajeProveedor: `wamid.DEMO_TPL_${Date.now()}` };
+    }
+
+    const url = `https://graph.facebook.com/${this.versionGraph}/${proveedorCuentaId}/messages`;
+    const componentes =
+      parametrosCuerpo.length > 0
+        ? [
+            {
+              type: "body",
+              parameters: parametrosCuerpo.map((texto) => ({ type: "text", text: texto })),
+            },
+          ]
+        : undefined;
+
+    const cuerpoPeticion: Record<string, unknown> = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: destinatarioTelefono,
+      type: "template",
+      template: {
+        name: nombrePlantilla,
+        language: { code: codigoIdioma },
+        ...(componentes ? { components: componentes } : {}),
+      },
+    };
+
+    const respuesta = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokenAcceso}`,
+      },
+      body: JSON.stringify(cuerpoPeticion),
+    });
+
+    if (!respuesta.ok) {
+      const errorData = await respuesta.json().catch(() => ({}));
+      throw new Error(`Error al enviar plantilla WhatsApp Cloud API: ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await respuesta.json();
+    const idMensajeProveedor = data.messages?.[0]?.id || `wamid.${Date.now()}`;
+    return { idMensajeProveedor };
+  }
+
+  /**
+   * Verifica el estado del número telefónico configurado en Meta Graph API.
+   */
+  async verificarEstadoNumero(
+    proveedorCuentaId: string,
+    tokenAcceso: string
+  ): Promise<{ conectado: boolean; nombreVerificado?: string; numero?: string; detalle?: string }> {
+    if (!tokenAcceso || tokenAcceso.includes("TOKEN_DEMO") || !proveedorCuentaId || proveedorCuentaId.includes("tu_phone_number_id")) {
+      return {
+        conectado: false,
+        detalle: "Falta configurar WHATSAPP_PHONE_NUMBER_ID o WHATSAPP_ACCESS_TOKEN.",
+      };
+    }
+
+    try {
+      const url = `https://graph.facebook.com/${this.versionGraph}/${proveedorCuentaId}?fields=display_phone_number,verified_name,quality_rating`;
+      const respuesta = await fetch(url, {
+        headers: { Authorization: `Bearer ${tokenAcceso}` },
+      });
+      const data = await respuesta.json();
+      if (!respuesta.ok) {
+        return { conectado: false, detalle: data?.error?.message || "Error al consultar Meta Graph API." };
+      }
+      return {
+        conectado: true,
+        nombreVerificado: data.verified_name,
+        numero: data.display_phone_number,
+      };
+    } catch (error) {
+      return {
+        conectado: false,
+        detalle: error instanceof Error ? error.message : "Error de red al consultar Meta.",
+      };
+    }
   }
 
   /**

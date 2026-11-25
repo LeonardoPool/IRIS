@@ -12,59 +12,72 @@ import {
   LayoutDashboard,
   Inbox,
   Users,
-  Contact,
-  Kanban,
-  Calendar,
+  CalendarCheck2,
   FolderGit2,
-  FileSignature,
-  BarChart3,
   Settings,
-  Share2,
   LogOut,
   Menu,
   X,
   User,
-  ShieldCheck,
   PanelLeftClose,
   PanelLeft,
-  ChevronLeft,
-  ChevronRight,
-  Flame,
-  Columns,
+  Building2,
+  Calculator,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { crearClienteSupabaseNavegador } from "@/librerias/supabase/cliente";
+import type { RolJerarquicoIRIS } from "@/librerias/seguridad/navegacion-rol";
 
-const elementosNavegacion = [
-  { nombre: "Dashboard", href: "/panel-control", icono: LayoutDashboard },
-  { nombre: "Bandeja Omnicanal", href: "/bandeja", icono: Inbox, badge: "SLA" },
-  { nombre: "Pool de Leads", href: "/pool-leads", icono: Flame, badge: "Bolsa" },
-  { nombre: "Seguimiento", href: "/seguimiento", icono: Columns },
-  { nombre: "Prospectos", href: "/prospectos", icono: Users },
-  { nombre: "Marketing y Leads", href: "/marketing", icono: Share2 },
-  { nombre: "Contactos", href: "/contactos", icono: Contact },
-  { nombre: "Oportunidades", href: "/oportunidades", icono: Kanban },
-  { nombre: "Actividades", href: "/actividades", icono: Calendar },
+interface ElementoNav {
+  nombre: string;
+  href: string;
+  icono: React.ComponentType<{ className?: string }>;
+  badge?: string;
+  rolesPermitidos?: RolJerarquicoIRIS[];
+  permisoRequerido?: string;
+}
+
+const ELEMENTOS_NAVEGACION_CANONICOS: ElementoNav[] = [
+  { nombre: "Inicio", href: "/panel-control", icono: LayoutDashboard },
+  { nombre: "Bandeja", href: "/bandeja", icono: Inbox, badge: "SLA" },
+  { nombre: "Mi Trabajo", href: "/mi-trabajo", icono: CalendarCheck2 },
+  { nombre: "Clientes", href: "/clientes", icono: Users },
+  { nombre: "Desarrollos", href: "/desarrollos", icono: Building2, badge: "SVG" },
+  {
+    nombre: "Cotizador",
+    href: "/cotizador",
+    icono: Calculator,
+    rolesPermitidos: ["superadministrador", "gerente", "coordinador", "asesor"],
+  },
   { nombre: "Recursos", href: "/recursos", icono: FolderGit2 },
-  { nombre: "Contratos", href: "/contratos", icono: FileSignature },
-  { nombre: "Analítica", href: "/analitica", icono: BarChart3 },
-  { nombre: "Configuración", href: "/configuracion", icono: Settings },
+  {
+    nombre: "Administración",
+    href: "/configuracion",
+    icono: Settings,
+    rolesPermitidos: ["superadministrador", "gerente"],
+    permisoRequerido: "configuracion:administrar",
+  },
 ];
 
 const titulosRutas: Record<string, string> = {
-  "/panel-control": "Panel de Control",
+  "/panel-control": "Inicio — Resumen Operativo",
   "/bandeja": "Bandeja Omnicanal",
-  "/pool-leads": "Pool de Leads — Bolsa Centralizada",
-  "/seguimiento": "Seguimiento Comercial — Tablero Kanban",
-  "/prospectos": "Gestión de Prospectos",
-  "/marketing": "Marketing y Formularios",
-  "/contactos": "Directorio de Contactos",
-  "/oportunidades": "Pipeline Comercial",
-  "/actividades": "Agenda y Actividades",
-  "/recursos": "Biblioteca de Recursos",
-  "/contratos": "Contratos DocuSign",
-  "/analitica": "Inteligencia Comercial",
-  "/configuracion": "Configuración y Estructura Organizacional",
+  "/mi-trabajo": "Mi Trabajo — Seguimiento y Agenda",
+  "/clientes": "Clientes — Cartera Comercial 360°",
+  "/desarrollos": "Desarrollos, Inventario y Planos SVG",
+  "/cotizador": "Cotizador Inmobiliario y Apartados",
+  "/recursos": "Recursos Digitales y Speeches",
+  "/configuracion": "Administración y Configuración",
+  // Compatibilidad con rutas heredadas
+  "/prospectos": "Clientes — Prospectos",
+  "/pool-leads": "Clientes — Pool de Leads",
+  "/contactos": "Clientes — Contactos",
+  "/oportunidades": "Clientes — Oportunidades",
+  "/contratos": "Clientes — Contratos DocuSign",
+  "/seguimiento": "Mi Trabajo — Seguimiento Kanban",
+  "/actividades": "Mi Trabajo — Agenda y Actividades",
+  "/analitica": "Inicio — Analítica Comercial",
+  "/marketing": "Administración — Captación y Marketing",
 };
 
 interface PropiedadesArmazon {
@@ -73,6 +86,8 @@ interface PropiedadesArmazon {
   nombreUsuario?: string;
   correoUsuario?: string;
   nombreRol?: string;
+  rolJerarquico?: RolJerarquicoIRIS;
+  permisos?: string[];
 }
 
 export function ArmazonPanel({
@@ -81,6 +96,8 @@ export function ArmazonPanel({
   nombreUsuario = "Administración",
   correoUsuario = "admin@iris.wylen.com",
   nombreRol = "Operador",
+  rolJerarquico = "asesor",
+  permisos = [],
 }: PropiedadesArmazon) {
   const rutaActual = usePathname();
   const router = useRouter();
@@ -88,7 +105,23 @@ export function ArmazonPanel({
   const [cerrandoSesion, setCerrandoSesion] = React.useState(false);
   const [sidebarColapsado, setSidebarColapsado] = React.useState(false);
 
-  // Cargar estado inicial desde localStorage si existe
+  const elementosNavegacion = React.useMemo(() => {
+    return ELEMENTOS_NAVEGACION_CANONICOS.filter((item) => {
+      if (!item.rolesPermitidos && !item.permisoRequerido) return true;
+      const cumpleRol = item.rolesPermitidos
+        ? item.rolesPermitidos.includes(rolJerarquico)
+        : false;
+      const cumplePermiso = item.permisoRequerido
+        ? permisos.includes(item.permisoRequerido) || permisos.includes("organizacion:administrar")
+        : false;
+
+      if (item.href === "/cotizador") {
+        return cumpleRol || permisos.includes("oportunidades:gestionar");
+      }
+      return cumpleRol || cumplePermiso;
+    });
+  }, [rolJerarquico, permisos]);
+
   React.useEffect(() => {
     try {
       const guardado = localStorage.getItem("iris_sidebar_colapsado");
@@ -110,19 +143,17 @@ export function ArmazonPanel({
 
   const esRutaBandeja = rutaActual.startsWith("/bandeja");
 
-  // Escuchar evento personalizado para abrir menú móvil desde vistas embebidas (ej. Bandeja)
   React.useEffect(() => {
     const manejarAbrirMenu = () => setMenuMovilAbierto(true);
     window.addEventListener("iris:abrir-menu-movil", manejarAbrirMenu);
     return () => window.removeEventListener("iris:abrir-menu-movil", manejarAbrirMenu);
   }, []);
 
-  // Cerrar cajón móvil al cambiar de ruta
   React.useEffect(() => {
     setMenuMovilAbierto(false);
   }, [rutaActual]);
 
-  const tituloActual = titulosRutas[rutaActual] || "Panel de Control";
+  const tituloActual = titulosRutas[rutaActual] || "Inicio — Resumen Operativo";
 
   const manejarCerrarSesion = async () => {
     setCerrandoSesion(true);
@@ -146,16 +177,13 @@ export function ArmazonPanel({
           : "min-h-screen"
       )}
     >
-      {/* ==================================================================== */}
-      {/* 1. BARRA LATERAL DESKTOP (lg y superior) — DESPLEGABLE / COLAPSABLE */}
-      {/* ==================================================================== */}
+      {/* 1. BARRA LATERAL DESKTOP */}
       <aside
         className={cn(
           "hidden lg:flex shrink-0 bg-white border-r border-[#e5e7eb] flex-col h-screen sticky top-0 select-none z-20 transition-all duration-300 ease-in-out",
           sidebarColapsado ? "w-[72px]" : "w-64"
         )}
       >
-        {/* Cabecera / Marca IRIS */}
         <div
           className={cn(
             "h-16 flex items-center border-b border-[#e5e7eb] transition-all",
@@ -176,7 +204,7 @@ export function ArmazonPanel({
               <div className="flex flex-col min-w-0 animate-in fade-in duration-200">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-extrabold tracking-tight text-gray-900">IRIS</span>
-                  <span className="text-[10px] font-semibold text-gray-400">v1.0</span>
+                  <span className="text-[10px] font-semibold text-gray-400">v2.0</span>
                 </div>
                 <span className="text-[11px] text-gray-500 font-medium truncate leading-tight">
                   {nombreOrganizacion}
@@ -198,8 +226,7 @@ export function ArmazonPanel({
           </button>
         </div>
 
-        {/* Enlaces de Navegación */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="Navegación principal">
           {elementosNavegacion.map((item) => {
             const Icono = item.icono;
             const estaActivo =
@@ -250,23 +277,22 @@ export function ArmazonPanel({
           })}
         </nav>
 
-        {/* Tarjeta de Estado Operativo */}
         <div className="p-3 border-t border-[#e5e7eb] space-y-2 pb-4">
           {!sidebarColapsado ? (
-            <div className="bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl p-3 flex items-center justify-between shadow-2xs animate-in fade-in duration-200">
+            <div className="bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl p-3 flex items-center justify-between shadow-2xs">
               <div className="min-w-0 pr-2">
                 <span className="text-xs font-semibold text-gray-800 block leading-tight">
                   SLA Omnicanal
                 </span>
                 <span className="text-[11px] text-gray-400 font-normal block mt-0.5">
-                  WhatsApp Cloud · En espera
+                  WhatsApp Cloud · Activo
                 </span>
               </div>
-              <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="En espera de asignación" />
+              <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" title="Servicio activo" />
             </div>
           ) : (
-            <div className="flex justify-center py-1" title="SLA Omnicanal: WhatsApp Cloud En espera">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+            <div className="flex justify-center py-1" title="SLA Omnicanal: WhatsApp Cloud Activo">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
             </div>
           )}
 
@@ -285,20 +311,15 @@ export function ArmazonPanel({
         </div>
       </aside>
 
-      {/* ==================================================================== */}
-      {/* 2. CAJÓN DESLIZANTE MÓVIL (DRAWER PARA CELULARES) */}
-      {/* ==================================================================== */}
+      {/* 2. CAJÓN DESLIZANTE MÓVIL */}
       {menuMovilAbierto && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
-          {/* Telón de fondo */}
           <div
             className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
             onClick={() => setMenuMovilAbierto(false)}
           />
 
-          {/* Panel deslizante */}
           <div className="relative w-72 max-w-[85vw] bg-white h-full flex flex-col shadow-2xl z-10 animate-in slide-in-from-left duration-200">
-            {/* Cabecera del Drawer */}
             <div className="h-16 px-5 flex items-center justify-between border-b border-[#e5e7eb]">
               <div className="flex items-center gap-3">
                 <div className="relative h-8 w-8 rounded-full overflow-hidden bg-black/5 p-0.5 border border-black/10 shrink-0">
@@ -328,7 +349,6 @@ export function ArmazonPanel({
               </button>
             </div>
 
-            {/* Enlaces de Navegación Móvil */}
             <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
               {elementosNavegacion.map((item) => {
                 const Icono = item.icono;
@@ -367,7 +387,6 @@ export function ArmazonPanel({
               })}
             </nav>
 
-            {/* Pie del Drawer Móvil */}
             <div className="p-3 border-t border-[#e5e7eb] space-y-2">
               <div className="flex items-center gap-2.5 px-2 py-1">
                 <div className="h-8 w-8 rounded-full bg-[#f1f3f5] border border-[#e5e7eb] flex items-center justify-center text-gray-500 shrink-0">
@@ -392,18 +411,14 @@ export function ArmazonPanel({
         </div>
       )}
 
-      {/* ==================================================================== */}
-      {/* 3. CONTENEDOR PRINCIPAL: CABECERA + CONTENIDO + BARRA INFERIOR MÓVIL */}
-      {/* ==================================================================== */}
+      {/* 3. CONTENEDOR PRINCIPAL */}
       <div className={cn("flex-1 flex flex-col min-w-0", esRutaBandeja && "h-full overflow-hidden")}>
-        {/* CABECERA SUPERIOR RESPONSIVA (En Bandeja móvil se oculta para maximizar el chat tipo WhatsApp) */}
         <header
           className={cn(
             "h-16 px-4 sm:px-6 lg:px-8 border-b border-[#e5e7eb] bg-white items-center justify-between sticky top-0 z-10 select-none shrink-0",
             esRutaBandeja ? "hidden lg:flex" : "flex"
           )}
         >
-          {/* Izquierda: Botón hamburguesa en móvil + Botón colapsar en Desktop + Breadcrumb / Título */}
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={() => setMenuMovilAbierto(true)}
@@ -413,7 +428,6 @@ export function ArmazonPanel({
               <Menu className="h-5 w-5" />
             </button>
 
-            {/* Toggle de Sidebar Desktop */}
             <button
               type="button"
               onClick={alternarSidebar}
@@ -438,7 +452,6 @@ export function ArmazonPanel({
             </div>
           </div>
 
-          {/* Derecha: Usuario y Salir */}
           <div className="flex items-center gap-3 sm:gap-5">
             <div className="flex items-center gap-2 sm:gap-2.5">
               <div className="h-8 w-8 rounded-full bg-[#f1f3f5] border border-[#e5e7eb] flex items-center justify-center text-gray-500 shrink-0">
@@ -454,7 +467,6 @@ export function ArmazonPanel({
               </div>
             </div>
 
-            {/* Botón Salir */}
             <button
               onClick={manejarCerrarSesion}
               disabled={cerrandoSesion}
@@ -467,7 +479,6 @@ export function ArmazonPanel({
           </div>
         </header>
 
-        {/* CONTENIDO PRINCIPAL */}
         <main
           className={cn(
             "flex-1",
@@ -479,64 +490,62 @@ export function ArmazonPanel({
           {children}
         </main>
 
-        {/* ================================================================== */}
-        {/* 4. BARRA DE NAVEGACIÓN INFERIOR PARA SMARTPHONES (PWA ACCESIBILIDAD) */}
-        {/* ================================================================== */}
+        {/* 4. BARRA DE NAVEGACIÓN INFERIOR MÓVIL (PWA) */}
         {!esRutaBandeja && (
           <nav className="fixed bottom-0 left-0 right-0 h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-white/95 backdrop-blur-md border-t border-[#e5e7eb] flex lg:hidden items-center justify-around px-2 z-30 select-none shadow-lg">
-          <Link
-            href="/panel-control"
-            className={cn(
-              "flex flex-col items-center justify-center flex-1 py-1 transition-colors",
-              rutaActual === "/panel-control" ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
-            )}
-          >
-            <LayoutDashboard className="h-4 w-4" />
-            <span className="text-[10px] mt-1 font-medium">Inicio</span>
-          </Link>
+            <Link
+              href="/panel-control"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 transition-colors",
+                rutaActual === "/panel-control" ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
+              )}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              <span className="text-[10px] mt-1 font-medium">Inicio</span>
+            </Link>
 
-          <Link
-            href="/bandeja"
-            className={cn(
-              "flex flex-col items-center justify-center flex-1 py-1 transition-colors relative",
-              rutaActual.startsWith("/bandeja") ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
-            )}
-          >
-            <Inbox className="h-4 w-4" />
-            <span className="text-[10px] mt-1 font-medium">Bandeja</span>
-            <span className="absolute top-1.5 right-1/4 h-2 w-2 rounded-full bg-emerald-500" />
-          </Link>
+            <Link
+              href="/bandeja"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 transition-colors relative",
+                rutaActual.startsWith("/bandeja") ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
+              )}
+            >
+              <Inbox className="h-4 w-4" />
+              <span className="text-[10px] mt-1 font-medium">Bandeja</span>
+              <span className="absolute top-1.5 right-1/4 h-2 w-2 rounded-full bg-emerald-500" />
+            </Link>
 
-          <Link
-            href="/prospectos"
-            className={cn(
-              "flex flex-col items-center justify-center flex-1 py-1 transition-colors",
-              rutaActual.startsWith("/prospectos") ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
-            )}
-          >
-            <Users className="h-4 w-4" />
-            <span className="text-[10px] mt-1 font-medium">Prospectos</span>
-          </Link>
+            <Link
+              href="/mi-trabajo"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 transition-colors",
+                rutaActual.startsWith("/mi-trabajo") ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
+              )}
+            >
+              <CalendarCheck2 className="h-4 w-4" />
+              <span className="text-[10px] mt-1 font-medium">Trabajo</span>
+            </Link>
 
-          <Link
-            href="/oportunidades"
-            className={cn(
-              "flex flex-col items-center justify-center flex-1 py-1 transition-colors",
-              rutaActual.startsWith("/oportunidades") ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
-            )}
-          >
-            <Kanban className="h-4 w-4" />
-            <span className="text-[10px] mt-1 font-medium">Pipeline</span>
-          </Link>
+            <Link
+              href="/clientes"
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-1 transition-colors",
+                rutaActual.startsWith("/clientes") ? "text-gray-900 font-bold" : "text-gray-400 hover:text-gray-700"
+              )}
+            >
+              <Users className="h-4 w-4" />
+              <span className="text-[10px] mt-1 font-medium">Clientes</span>
+            </Link>
 
-          <button
-            onClick={() => setMenuMovilAbierto(true)}
-            className="flex flex-col items-center justify-center flex-1 py-1 text-gray-400 hover:text-gray-700 transition-colors"
-          >
-            <Menu className="h-4 w-4" />
-            <span className="text-[10px] mt-1 font-medium">Más</span>
-          </button>
-        </nav>
+            <button
+              onClick={() => setMenuMovilAbierto(true)}
+              className="flex flex-col items-center justify-center flex-1 py-1 text-gray-400 hover:text-gray-700 transition-colors"
+            >
+              <Menu className="h-4 w-4" />
+              <span className="text-[10px] mt-1 font-medium">Más</span>
+            </button>
+          </nav>
         )}
       </div>
     </div>
