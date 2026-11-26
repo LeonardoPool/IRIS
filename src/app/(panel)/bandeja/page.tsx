@@ -14,8 +14,11 @@ export default async function PaginaBandeja() {
   const organizacionId = contexto?.organizacionId || "11111111-1111-1111-1111-111111111111";
   const usuarioActualId = contexto?.usuarioId || "11111111-1111-1111-1111-111111111111";
 
-  // Listar todas las conversaciones activas
-  const conversaciones = await servicioComunicacion.listarConversaciones(organizacionId, "todas");
+  // Listar todas las conversaciones activas y cuenta WhatsApp de la organización
+  const [conversaciones, cuentaWhatsApp] = await Promise.all([
+    servicioComunicacion.listarConversaciones(organizacionId, "todas"),
+    servicioComunicacion.obtenerCuentaWhatsAppOrganizacion(organizacionId),
+  ]);
 
   // Listar agentes comerciales de la organización para reasignación
   const supabase = await crearClienteSupabaseServidor();
@@ -32,6 +35,7 @@ export default async function PaginaBandeja() {
       conversacionesIniciales={conversaciones}
       agentesDisponibles={agentes}
       usuarioActualId={usuarioActualId}
+      cuentaWhatsAppInicial={cuentaWhatsApp}
     />
   );
 }

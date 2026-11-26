@@ -17,6 +17,15 @@ export interface PayloadMensajeNormalizado {
   marcaTiempoProveedor: string;
 }
 
+export interface PayloadEstadoMensaje {
+  proveedorMensajeId: string;
+  proveedorCuentaId: string;
+  estado: "sent" | "delivered" | "read" | "failed";
+  marcaTiempoProveedor: string;
+  codigoError?: number;
+  mensajeError?: string;
+}
+
 export class AdaptadorWhatsAppCloud {
   private readonly versionGraph: string;
 
@@ -133,6 +142,82 @@ export class AdaptadorWhatsAppCloud {
   }
 
   /**
+   * Extrae y normaliza las actualizaciones de estado de mensajes (sent, delivered, read, failed)
+   * enviadas por Meta Graph API en los webhooks.
+   */
+  normalizarEstadosMensajes(payload: any): PayloadEstadoMensaje[] {
+    const estadosNormalizados: PayloadEstadoMensaje[] = [];
+
+    if (!payload?.entry || !Array.isArray(payload.entry)) {
+      return estadosNormalizados;
+    }
+
+    const estadosValidos = new Set(["sent", "delivered", "read", "failed"]);
+
+    for (const entrada of payload.entry) {
+      if (!entrada.changes || !Array.isArray(entrada.changes)) continue;
+
+      for (const cambio of entrada.changes) {
+        const valor = cambio.value;
+        if (!valor || !valor.statuses || !Array.isArray(valor.statuses)) continue;
+
+        const proveedorCuentaId = valor.metadata?.phone_number_id || "";
+
+        for (const st of valor.statuses) {
+          if (!st?.id || !estadosValidos.has(st.status)) continue;
+
+          const primerError = Array.isArray(st.errors) ? st.errors[0] : undefined;
+          estadosNormalizados.push({
+            proveedorMensajeId: st.id,
+            proveedorCuentaId,
+            estado: st.status,
+            marcaTiempoProveedor: st.timestamp
+              ? new Date(Number(st.timestamp) * 1000).toISOString()
+              : new Date().toISOString(),
+            codigoError: primerError?.code,
+            mensajeError: primerError?.title || primerError?.message,
+          });
+        }
+      }
+    }
+
+    return estadosNormalizados;
+  }
+
+  private esCredencialDemo(proveedorCuentaId: string, tokenAcceso: string): boolean {
+    return (
+      !tokenAcceso ||
+      tokenAcceso.includes("TOKEN_DEMO") ||
+      !proveedorCuentaId ||
+      proveedorCuentaId.startsWith("PHONE_NUM_DEMO") ||
+      proveedorCuentaId.includes("tu_phone_number_id")
+    );
+  }
+
+  private formatearErrorMeta(errorData: any, contexto: string): Error {
+    const err = errorData?.error;
+    const codigoMeta = err?.code;
+    const detalle = err?.error_data?.details || err?.message || "Error desconocido de Meta Graph API.";
+
+    if (codigoMeta === 131047) {
+      return new Error(
+        "VENTANA_24H_EXPIRADA: Han pasado más de 24 horas desde el último mensaje del cliente. Debes enviar una plantilla aprobada por Meta."
+      );
+    }
+    if (codigoMeta === 131030) {
+      return new Error(
+        "DESTINATARIO_NO_PERMITIDO: El número destinatario no está en la lista de números permitidos de la app de prueba en Meta."
+      );
+    }
+    if (codigoMeta === 190) {
+      return new Error(
+        "TOKEN_META_INVALIDO: El token de acceso de WhatsApp expiró o es inválido. Actualiza las credenciales de la cuenta."
+      );
+    }
+    return new Error(`Error Meta (${contexto}${codigoMeta ? ` #${codigoMeta}` : ""}): ${detalle}`);
+  }
+
+  /**
    * Envía un mensaje de texto saliente utilizando la WhatsApp Business Cloud API.
    */
   async enviarMensajeTexto(
@@ -141,9 +226,14 @@ export class AdaptadorWhatsAppCloud {
     destinatarioTelefono: string,
     texto: string
   ): Promise<{ idMensajeProveedor: string }> {
-    // Si no hay token de acceso configurado (ej. desarrollo o pruebas sin credenciales)
-    if (!tokenAcceso || tokenAcceso.includes("TOKEN_DEMO")) {
-      console.log(`[WhatsApp Demo] Enviando a ${destinatarioTelefono}: "${texto}"`);
+    // Si no hay token de acceso configurado o es entorno de demostración en desarrollo
+    if (this.esCredencialDemo(proveedorCuentaId, tokenAcceso)) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          "Cuenta de WhatsApp sin credenciales productivas configuradas en esta organización."
+        );
+      }
+      console.log(`[WhatsApp Demo] Enviando texto a ${destinatarioTelefono}: "${texto}"`);
       return { idMensajeProveedor: `wamid.DEMO_${Date.now()}` };
     }
 
@@ -167,13 +257,7 @@ export class AdaptadorWhatsAppCloud {
 
     if (!respuesta.ok) {
       const errorData = await respuesta.json().catch(() => ({}));
-      const codigoMeta = errorData?.error?.code;
-      if (codigoMeta === 131047) {
-        throw new Error(
-          "VENTANA_24H_EXPIRADA: Han pasado más de 24 horas desde el último mensaje del cliente. Debes enviar una plantilla aprobada por Meta."
-        );
-      }
-      throw new Error(`Error en WhatsApp Cloud API: ${JSON.stringify(errorData)}`);
+      throw this.formatearErrorMeta(errorData, "texto");
     }
 
     const data = await respuesta.json();
@@ -192,7 +276,12 @@ export class AdaptadorWhatsAppCloud {
     codigoIdioma: string = "es_MX",
     parametrosCuerpo: string[] = []
   ): Promise<{ idMensajeProveedor: string }> {
-    if (!tokenAcceso || tokenAcceso.includes("TOKEN_DEMO") || !proveedorCuentaId || proveedorCuentaId.includes("tu_phone_number_id")) {
+    if (this.esCredencialDemo(proveedorCuentaId, tokenAcceso)) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          "Cuenta de WhatsApp sin credenciales productivas configuradas en esta organización."
+        );
+      }
       console.log(
         `[WhatsApp Demo] Enviando plantilla '${nombrePlantilla}' (${codigoIdioma}) a ${destinatarioTelefono}`
       );
@@ -233,7 +322,7 @@ export class AdaptadorWhatsAppCloud {
 
     if (!respuesta.ok) {
       const errorData = await respuesta.json().catch(() => ({}));
-      throw new Error(`Error al enviar plantilla WhatsApp Cloud API: ${JSON.stringify(errorData)}`);
+      throw this.formatearErrorMeta(errorData, "plantilla");
     }
 
     const data = await respuesta.json();
@@ -288,8 +377,13 @@ export class AdaptadorWhatsAppCloud {
     urlImagen: string,
     caption?: string
   ): Promise<{ idMensajeProveedor: string }> {
-    // Si no hay token de acceso configurado o es entorno de demostración
-    if (!tokenAcceso || tokenAcceso.includes("TOKEN_DEMO")) {
+    // Si no hay token de acceso configurado o es entorno de demostración en desarrollo
+    if (this.esCredencialDemo(proveedorCuentaId, tokenAcceso)) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          "Cuenta de WhatsApp sin credenciales productivas configuradas en esta organización."
+        );
+      }
       console.log(
         `[WhatsApp Demo] Enviando imagen a ${destinatarioTelefono}: "${urlImagen}" ${
           caption ? `con pie: "${caption}"` : ""
@@ -324,15 +418,7 @@ export class AdaptadorWhatsAppCloud {
 
     if (!respuesta.ok) {
       const errorData = await respuesta.json().catch(() => ({}));
-      const codigoMeta = errorData?.error?.code;
-
-      if (codigoMeta === 131047) {
-        throw new Error(
-          "Restricción de Meta: Han pasado más de 24 horas desde el último mensaje del cliente. Fuera de ventana solo pueden enviarse plantillas aprobadas."
-        );
-      }
-
-      throw new Error(`Error en WhatsApp Cloud API al enviar imagen: ${JSON.stringify(errorData)}`);
+      throw this.formatearErrorMeta(errorData, "imagen");
     }
 
     const data = await respuesta.json();

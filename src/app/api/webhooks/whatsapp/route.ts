@@ -20,7 +20,12 @@ export async function GET(request: NextRequest) {
   const tokenEsperado =
     process.env.WHATSAPP_VERIFY_TOKEN ||
     process.env.META_WEBHOOK_VERIFY_TOKEN ||
-    "iris_token_secreto_2026";
+    (process.env.NODE_ENV === "development" ? "iris_token_secreto_2026" : "");
+
+  if (!tokenEsperado) {
+    console.error("[WhatsApp Webhook] WHATSAPP_VERIFY_TOKEN no está configurado.");
+    return NextResponse.json({ error: "Configuración de verificación incompleta." }, { status: 500 });
+  }
 
   if (modo === "subscribe" && tokenVerificacion === tokenEsperado) {
     console.log("[WhatsApp Webhook] Verificación de suscripción exitosa.");
@@ -45,22 +50,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Firma HMAC inválida." }, { status: 401 });
     }
 
-    // 2. Parseo del payload JSON
+    // 2. Parseo y validación básica del evento de Meta
     const payload = JSON.parse(cuerpoTexto);
+    if (payload?.object !== "whatsapp_business_account") {
+      return NextResponse.json(
+        { exito: false, error: "Evento ignorado: objeto distinto a whatsapp_business_account." },
+        { status: 200 }
+      );
+    }
 
-    // 3. Normalización de mensajes entrantes
+    // 3. Normalización de mensajes entrantes y estados de entrega
     const mensajesNormalizados = adaptadorWhatsApp.normalizarMensajesEntrantes(payload);
+    const estadosNormalizados = adaptadorWhatsApp.normalizarEstadosMensajes(payload);
 
-    // 4. Procesamiento idempotente de cada mensaje
+    // 4. Procesamiento idempotente de mensajes entrantes
+    let mensajesProcesados = 0;
     for (const mensaje of mensajesNormalizados) {
-      await servicioComunicacion.procesarMensajeEntrante(mensaje);
+      const res = await servicioComunicacion.procesarMensajeEntrante(mensaje);
+      if (res.procesado) mensajesProcesados += 1;
+    }
+
+    // 5. Procesamiento de actualizaciones de estado (sent, delivered, read, failed)
+    let estadosProcesados = 0;
+    for (const estado of estadosNormalizados) {
+      const res = await servicioComunicacion.procesarActualizacionEstado(estado);
+      if (res.actualizado) estadosProcesados += 1;
     }
 
     // Siempre retornar 200 OK a Meta para confirmar recepción y evitar reintentos innecesarios
-    return NextResponse.json({ exito: true, procesados: mensajesNormalizados.length }, { status: 200 });
+    return NextResponse.json(
+      { exito: true, procesados: mensajesProcesados, estadosProcesados },
+      { status: 200 }
+    );
   } catch (error: any) {
-    console.error("[WhatsApp Webhook] Error interno en procesamiento:", error);
+    console.error("[WhatsApp Webhook] Error interno en procesamiento:", error?.message || "Error desconocido");
     // Retornamos 200 OK con bandera de error para registrar en servidor sin generar ciclos de reintentos infinitos
-    return NextResponse.json({ exito: false, error: error.message }, { status: 200 });
+    return NextResponse.json({ exito: false, error: "Error procesando webhook." }, { status: 200 });
   }
 }

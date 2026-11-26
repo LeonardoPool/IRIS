@@ -48,17 +48,29 @@ import {
   RefreshCw,
   Calculator,
   Eye,
+  CheckCheck,
+  Plus,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/librerias/utilidades/cn";
 import { notificar } from "@/librerias/notificaciones/sileo";
 import { accionCrearReunionGoogleMeet } from "@/acciones/calendario";
 import { accionListarSpeeches, accionEjecutarPasoSpeech } from "@/acciones/speeches";
+import {
+  enviarMensajeSalienteAccion,
+  agregarNotaInternaAccion,
+  obtenerMensajesConversacionAccion,
+  listarConversacionesAccion,
+  iniciarConversacionPlantillaAccion,
+  enviarPlantillaConversacionAccion,
+  guardarCuentaWhatsAppAccion,
+} from "@/acciones/comunicacion";
 import { useVisualViewport } from "@/librerias/hooks/use-visual-viewport";
 import {
   FichaUnificadaCliente,
   type SolicitudAbrirFichaCliente,
 } from "@/componentes/clientes/ficha-unificada-cliente";
-import type { Conversacion, Mensaje } from "@/tipos/omnicanal";
+import type { Conversacion, Mensaje, CuentaCanal } from "@/tipos/omnicanal";
 import type { Usuario } from "@/tipos/identidad";
 import type { SpeechComercial } from "@/tipos/speeches";
 
@@ -70,6 +82,8 @@ interface MensajeSimulado {
   texto: string;
   remitente: string;
   hora: string;
+  estadoEntrega?: Mensaje["estado_entrega"];
+  errorMeta?: string;
   metadatos?: {
     nombreArchivo?: string;
     pesoArchivo?: string;
@@ -278,23 +292,146 @@ const CONVERSACIONES_MOCK: ConversacionSimulada[] = [
   },
 ];
 
+function formatearHoraCorta(iso?: string | null): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+function mapearMensajeReal(m: Mensaje): MensajeSimulado {
+  const meta = (m.metadatos_adjunto || {}) as Record<string, any>;
+  const errorMeta = meta?.error_meta?.mensaje || undefined;
+
+  let tipo: MensajeSimulado["tipo"] = "texto";
+  if (m.remitente_tipo === "bot" || m.remitente_tipo === "sistema") {
+    tipo = "bot";
+  } else if (m.tipo_contenido === "imagen" || meta?.url_imagen) {
+    tipo = "imagen";
+  } else if (m.tipo_contenido === "documento") {
+    tipo = "archivo";
+  }
+
+  return {
+    id: m.id,
+    direccion: m.direccion,
+    tipo,
+    texto: m.contenido_texto || `[${m.tipo_contenido}]`,
+    remitente:
+      m.remitente_usuario?.nombre_completo ||
+      (m.direccion === "entrante" ? "Cliente WhatsApp" : "Agente IRIS"),
+    hora: formatearHoraCorta(m.fecha_creacion),
+    estadoEntrega: m.estado_entrega,
+    errorMeta,
+    metadatos: {
+      nombreArchivo: meta?.nombre_archivo,
+      pesoArchivo: meta?.peso_archivo,
+      urlImagen: meta?.url_imagen,
+      speechId: meta?.speech_id,
+      speechNombre: meta?.speech_nombre,
+      pasoOrden: meta?.paso_orden,
+      totalPasos: meta?.total_pasos,
+      autorNota:
+        m.direccion === "interna"
+          ? m.remitente_usuario?.nombre_completo || "Equipo IRIS"
+          : undefined,
+    },
+  };
+}
+
+function mapearConversacionReal(
+  c: Conversacion,
+  mensajesPrevios: MensajeSimulado[] = []
+): ConversacionSimulada {
+  const codigoCanal = c.cuenta_canal?.canal?.codigo;
+  const canal: ConversacionSimulada["canal"] =
+    codigoCanal === "facebook_messenger" || codigoCanal === "instagram_direct" ? "meta" : "whatsapp";
+
+  const estadoSlaRaw = c.registro_sla?.estado_sla;
+  const estadoSla: ConversacionSimulada["estadoSla"] =
+    estadoSlaRaw === "violado" ? "violado" : estadoSlaRaw === "en_alerta" ? "en_alerta" : "cumplido";
+
+  const nombreContacto = c.contacto
+    ? `${c.contacto.nombre}${c.contacto.apellidos ? ` ${c.contacto.apellidos}` : ""}`
+    : null;
+
+  return {
+    id: c.id,
+    nombreCliente:
+      c.nombre_remoto_cliente ||
+      nombreContacto ||
+      c.prospecto?.nombre ||
+      `+${c.identificador_remoto_cliente}`,
+    telefono: c.identificador_remoto_cliente,
+    correo: c.contacto?.correo_principal || "Sin correo registrado",
+    ultimoMensaje: c.ultimo_mensaje_texto || "Sin mensajes",
+    hora: formatearHoraCorta(c.fecha_ultimo_mensaje),
+    noLeidos: c.no_leidos_agente || 0,
+    canal,
+    estadoSla,
+    minutosSla: c.registro_sla?.minutos_restantes ?? 10,
+    interes: c.prospecto?.desarrollo_interes || "Por definir",
+    presupuesto: "Por definir",
+    etapaEmbudo: c.prospecto?.estado || c.estado,
+    score: c.prospecto?.puntuacion ?? 50,
+    asesorAsignado: c.agente_asignado_actual?.nombre_completo || "Sin Asignar (En Cola)",
+    mensajes: mensajesPrevios,
+  };
+}
+
 export function VistaBandeja({
   conversacionesIniciales = [],
   agentesDisponibles = [],
   usuarioActualId,
+  cuentaWhatsAppInicial = null,
 }: {
   conversacionesIniciales?: Conversacion[];
   agentesDisponibles?: Usuario[];
   usuarioActualId?: string;
+  cuentaWhatsAppInicial?: CuentaCanal | null;
 }) {
   // Sincronización en tiempo real del viewport visible móvil (iOS / Android)
   const { altura: alturaViewport, tecladoAbierto, alturaTeclado } = useVisualViewport();
 
-  // Lista de conversaciones enriquecidas para demostración operativa
-  const [conversaciones, setConversaciones] = React.useState<ConversacionSimulada[]>(CONVERSACIONES_MOCK);
-  const [conversacionActivaId, setConversacionActivaId] = React.useState<string>(CONVERSACIONES_MOCK[0].id);
+  // Lista de conversaciones reales desde la base de datos
+  const [conversaciones, setConversaciones] = React.useState<ConversacionSimulada[]>(() =>
+    conversacionesIniciales.map((c) => mapearConversacionReal(c))
+  );
+  const [conversacionActivaId, setConversacionActivaId] = React.useState<string>(
+    () => conversacionesIniciales[0]?.id || ""
+  );
   const [filtroTab, setFiltroTab] = React.useState<"todas" | "no_asignadas" | "prioritarias">("todas");
   const [busqueda, setBusqueda] = React.useState("");
+  const [enviandoMensaje, setEnviandoMensaje] = React.useState(false);
+  const [cargandoMensajes, setCargandoMensajes] = React.useState(false);
+  const [actualizandoBandeja, setActualizandoBandeja] = React.useState(false);
+
+  // Cuenta de WhatsApp de la organización
+  const [cuentaWhatsApp, setCuentaWhatsApp] = React.useState<CuentaCanal | null>(cuentaWhatsAppInicial);
+  const [modalConfigWhatsAppAbierto, setModalConfigWhatsAppAbierto] = React.useState(false);
+  const [cfgNombreId, setCfgNombreId] = React.useState(
+    cuentaWhatsAppInicial?.nombre_identificador || "WhatsApp Oficial"
+  );
+  const [cfgPhoneId, setCfgPhoneId] = React.useState(
+    cuentaWhatsAppInicial?.proveedor_cuenta_id?.startsWith("PHONE_NUM_DEMO")
+      ? ""
+      : cuentaWhatsAppInicial?.proveedor_cuenta_id || ""
+  );
+  const [cfgWabaId, setCfgWabaId] = React.useState(cuentaWhatsAppInicial?.identificador_waba || "");
+  const [cfgAccessToken, setCfgAccessToken] = React.useState("");
+  const [guardandoConfigWA, setGuardandoConfigWA] = React.useState(false);
+
+  // Modal Nuevo Chat / Envío de Plantilla WhatsApp
+  const [modalPlantillaAbierto, setModalPlantillaAbierto] = React.useState(false);
+  const [modoPlantillaNueva, setModoPlantillaNueva] = React.useState(true);
+  const [telefonoPlantilla, setTelefonoPlantilla] = React.useState("");
+  const [nombreContactoPlantilla, setNombreContactoPlantilla] = React.useState("");
+  const [nombrePlantilla, setNombrePlantilla] = React.useState("");
+  const [idiomaPlantilla, setIdiomaPlantilla] = React.useState("es_MX");
+  const [parametrosPlantilla, setParametrosPlantilla] = React.useState("");
+  const [enviandoPlantilla, setEnviandoPlantilla] = React.useState(false);
 
   // Vista en móvil: "lista" o "chat"
   const [vistaMovil, setVistaMovil] = React.useState<"lista" | "chat">("chat");
@@ -370,7 +507,98 @@ export function VistaBandeja({
 
   // Conversación seleccionada
   const conversacionActiva =
-    conversaciones.find((c) => c.id === conversacionActivaId) || conversaciones[0];
+    conversaciones.find((c) => c.id === conversacionActivaId) || conversaciones[0] || null;
+
+  const cargarMensajesDeConversacion = React.useCallback(async (idConv: string, silencioso = false) => {
+    if (!idConv) return;
+    if (!silencioso) setCargandoMensajes(true);
+    try {
+      const res = await obtenerMensajesConversacionAccion(idConv);
+      if (res.exito && Array.isArray(res.mensajes)) {
+        const mapeados = res.mensajes.map((m: Mensaje) => mapearMensajeReal(m));
+        setConversaciones((prev) =>
+          prev.map((c) => (c.id === idConv ? { ...c, mensajes: mapeados } : c))
+        );
+      }
+    } catch {
+      // Ignorar errores transitorios en polling silencioso
+    } finally {
+      if (!silencioso) setCargandoMensajes(false);
+    }
+  }, []);
+
+  const sincronizarBandeja = React.useCallback(
+    async (manual = false) => {
+      if (manual) setActualizandoBandeja(true);
+      try {
+        const res = await listarConversacionesAccion("todas");
+        if (res.exito && Array.isArray(res.conversaciones)) {
+          setConversaciones((prev) => {
+            const mapaMensajes = new Map(prev.map((c) => [c.id, c.mensajes]));
+            return res.conversaciones.map((c: Conversacion) =>
+              mapearConversacionReal(c, mapaMensajes.get(c.id) || [])
+            );
+          });
+          if (!conversacionActivaId && res.conversaciones[0]?.id) {
+            setConversacionActivaId(res.conversaciones[0].id);
+          }
+        }
+        if (conversacionActivaId) {
+          await cargarMensajesDeConversacion(conversacionActivaId, true);
+        }
+      } catch {
+        if (manual) {
+          notificar.error("Error de sincronización", "No se pudo actualizar la bandeja.");
+        }
+      } finally {
+        if (manual) setActualizandoBandeja(false);
+      }
+    },
+    [cargarMensajesDeConversacion, conversacionActivaId]
+  );
+
+  // Cargar mensajes reales al cambiar de conversación activa
+  React.useEffect(() => {
+    if (conversacionActivaId) {
+      cargarMensajesDeConversacion(conversacionActivaId);
+    }
+  }, [conversacionActivaId, cargarMensajesDeConversacion]);
+
+  // Polling cada 5 segundos únicamente cuando la pestaña esté visible
+  React.useEffect(() => {
+    let intervalo: ReturnType<typeof setInterval> | null = null;
+
+    const ejecutarSiVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        sincronizarBandeja(false);
+      }
+    };
+
+    const iniciarPolling = () => {
+      if (intervalo) clearInterval(intervalo);
+      intervalo = setInterval(ejecutarSiVisible, 5000);
+    };
+
+    const manejarVisibilidad = () => {
+      if (document.visibilityState === "visible") {
+        sincronizarBandeja(false);
+        iniciarPolling();
+      } else if (intervalo) {
+        clearInterval(intervalo);
+        intervalo = null;
+      }
+    };
+
+    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      iniciarPolling();
+    }
+    document.addEventListener("visibilitychange", manejarVisibilidad);
+
+    return () => {
+      if (intervalo) clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", manejarVisibilidad);
+    };
+  }, [sincronizarBandeja]);
 
   // Detector de posición de scroll en el historial
   const manejarScrollHistorial = () => {
@@ -624,81 +852,200 @@ export function VistaBandeja({
     return coincideBusqueda;
   });
 
-  // Manejar envío de mensaje simulado (estilo WhatsApp con soporte de adjuntos)
-  const manejarEnviarMensaje = (e: React.FormEvent) => {
+  // Manejar envío real de mensaje de WhatsApp o nota interna
+  const manejarEnviarMensaje = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textoEntrada.trim() && !archivoAdjunto) return;
+    if (!conversacionActiva) return;
+    const texto = textoEntrada.trim();
+    if (!texto && !archivoAdjunto) return;
+    if (enviandoMensaje) return;
 
-    const horaActual = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
-    const nuevosMensajes: MensajeSimulado[] = [];
-
-    // Si hay archivo adjunto, agregar mensaje de archivo
-    if (archivoAdjunto) {
-      nuevosMensajes.push({
-        id: `m-doc-${Date.now()}`,
-        direccion: "saliente",
-        tipo: "archivo",
-        texto: textoEntrada.trim() || `Adjunto documento oficial: ${archivoAdjunto.nombre}`,
-        remitente: "Carlos Méndez",
-        hora: horaActual,
-        metadatos: {
-          nombreArchivo: archivoAdjunto.nombre,
-          pesoArchivo: archivoAdjunto.peso,
-        },
-      });
+    if (archivoAdjunto && !texto) {
+      notificar.aviso(
+        "Adjunto pendiente",
+        "Para enviar imágenes o secuencias usa Speeches o agrega texto para enviar por WhatsApp."
+      );
+      return;
     }
 
-    // Si hay texto adicional o es solo texto
-    if (textoEntrada.trim() && (!archivoAdjunto || modoNotaInterna)) {
-      const nuevoMensaje: MensajeSimulado = modoNotaInterna
-        ? {
-            id: `m-nota-${Date.now()}`,
-            direccion: "interna",
-            tipo: "texto",
-            texto: textoEntrada.trim(),
-            remitente: "Administración IRIS",
-            hora: horaActual,
-            metadatos: {
-              autorNota: "Administración / Supervisión (Privada)",
-            },
+    setEnviandoMensaje(true);
+    try {
+      if (modoNotaInterna) {
+        const res = await agregarNotaInternaAccion(conversacionActiva.id, texto);
+        if (!res.exito || !res.nota) {
+          notificar.error("No se pudo guardar la nota", res.error || "Error interno.");
+          return;
+        }
+        const msgMapeado = mapearMensajeReal(res.nota as Mensaje);
+        setConversaciones((prev) =>
+          prev.map((conv) =>
+            conv.id === conversacionActiva.id
+              ? {
+                  ...conv,
+                  ultimoMensaje: `[Nota Interna]: ${texto}`,
+                  hora: msgMapeado.hora,
+                  mensajes: [...conv.mensajes, msgMapeado],
+                }
+              : conv
+          )
+        );
+        notificar.info("Nota interna registrada", "Visible solo para el equipo y supervisores.");
+      } else {
+        const res = await enviarMensajeSalienteAccion(conversacionActiva.id, texto);
+        if (!res.exito || !res.mensaje) {
+          const errMsg = res.error || "Error al enviar por WhatsApp Cloud API.";
+          if (errMsg.includes("VENTANA_24H_EXPIRADA")) {
+            notificar.aviso(
+              "Ventana de 24h expirada",
+              "Han pasado más de 24h desde el último mensaje del cliente. Usa 'Plantilla' para reabrir el contacto."
+            );
+            setModoPlantillaNueva(false);
+            setTelefonoPlantilla(conversacionActiva.telefono);
+            setModalPlantillaAbierto(true);
+          } else {
+            notificar.error("Error al enviar por WhatsApp", errMsg);
           }
-        : {
-            id: `m-out-${Date.now()}`,
-            direccion: "saliente",
-            tipo: "texto",
-            texto: textoEntrada.trim(),
-            remitente: "Carlos Méndez",
-            hora: horaActual,
-          };
-      nuevosMensajes.push(nuevoMensaje);
-    }
-
-    const nuevasConversaciones = conversaciones.map((conv) => {
-      if (conv.id === conversacionActiva.id) {
-        return {
-          ...conv,
-          ultimoMensaje: modoNotaInterna
-            ? `[Nota Interna]: ${textoEntrada}`
-            : archivoAdjunto
-            ? `[Archivo]: ${archivoAdjunto.nombre}`
-            : textoEntrada,
-          hora: horaActual,
-          mensajes: [...conv.mensajes, ...nuevosMensajes],
-        };
+          return;
+        }
+        const msgMapeado = mapearMensajeReal(res.mensaje as Mensaje);
+        setConversaciones((prev) =>
+          prev.map((conv) =>
+            conv.id === conversacionActiva.id
+              ? {
+                  ...conv,
+                  ultimoMensaje: texto,
+                  hora: msgMapeado.hora,
+                  mensajes: [...conv.mensajes, msgMapeado],
+                }
+              : conv
+          )
+        );
+        notificar.exito("Mensaje enviado por WhatsApp", "Transmitido vía Meta Cloud API.");
       }
-      return conv;
-    });
 
-    setConversaciones(nuevasConversaciones);
-    setTextoEntrada("");
-    setArchivoAdjunto(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+      setTextoEntrada("");
+      setArchivoAdjunto(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+    } catch (err: any) {
+      notificar.error("Error al enviar", err?.message || "No se pudo completar el envío.");
+    } finally {
+      setEnviandoMensaje(false);
+    }
+  };
 
-    if (modoNotaInterna) {
-      notificar.info("Nota interna registrada", "Visible solo para el equipo y supervisores.");
-    } else {
-      notificar.exito("Mensaje enviado por WhatsApp", "Entregado al cliente con SLA activo.");
+  const manejarEnviarPlantilla = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (enviandoPlantilla) return;
+
+    const parametros = parametrosPlantilla
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    setEnviandoPlantilla(true);
+    try {
+      if (modoPlantillaNueva) {
+        const res = await iniciarConversacionPlantillaAccion({
+          telefonoDestino: telefonoPlantilla,
+          nombreContacto: nombreContactoPlantilla,
+          nombrePlantilla,
+          codigoIdioma: idiomaPlantilla,
+          parametrosCuerpo: parametros,
+        });
+
+        if (!res.exito || !("conversacion" in res)) {
+          notificar.error("Error al enviar plantilla", res.error || "No se pudo iniciar la conversación.");
+          return;
+        }
+
+        const convMapeada = mapearConversacionReal(res.conversacion as Conversacion, [
+          mapearMensajeReal(res.mensaje as Mensaje),
+        ]);
+        setConversaciones((prev) => {
+          const existe = prev.some((c) => c.id === convMapeada.id);
+          if (existe) {
+            return prev.map((c) =>
+              c.id === convMapeada.id
+                ? { ...convMapeada, mensajes: [...c.mensajes, ...convMapeada.mensajes] }
+                : c
+            );
+          }
+          return [convMapeada, ...prev];
+        });
+        setConversacionActivaId(convMapeada.id);
+        setVistaMovil("chat");
+        notificar.exito("Plantilla enviada", "Conversación iniciada en WhatsApp Cloud API.");
+      } else if (conversacionActiva) {
+        const res = await enviarPlantillaConversacionAccion(conversacionActiva.id, {
+          nombrePlantilla,
+          codigoIdioma: idiomaPlantilla,
+          parametrosCuerpo: parametros,
+        });
+
+        if (!res.exito || !res.mensaje) {
+          notificar.error("Error al enviar plantilla", res.error || "No se pudo enviar la plantilla.");
+          return;
+        }
+
+        const msgMapeado = mapearMensajeReal(res.mensaje as Mensaje);
+        setConversaciones((prev) =>
+          prev.map((c) =>
+            c.id === conversacionActiva.id
+              ? {
+                  ...c,
+                  ultimoMensaje: msgMapeado.texto,
+                  hora: msgMapeado.hora,
+                  mensajes: [...c.mensajes, msgMapeado],
+                }
+              : c
+          )
+        );
+        notificar.exito("Plantilla enviada", "Transmitida correctamente por WhatsApp.");
+      }
+
+      setModalPlantillaAbierto(false);
+      setTelefonoPlantilla("");
+      setNombreContactoPlantilla("");
+      setParametrosPlantilla("");
+    } finally {
+      setEnviandoPlantilla(false);
+    }
+  };
+
+  const manejarGuardarConfigWhatsApp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (guardandoConfigWA) return;
+    setGuardandoConfigWA(true);
+    try {
+      const res = await guardarCuentaWhatsAppAccion({
+        nombreIdentificador: cfgNombreId,
+        proveedorCuentaId: cfgPhoneId,
+        identificadorWaba: cfgWabaId,
+        accessToken: cfgAccessToken || undefined,
+      });
+
+      if (!res.exito || !("cuenta" in res)) {
+        notificar.error("No se pudo guardar", res.error || "Error al configurar cuenta.");
+        return;
+      }
+
+      setCuentaWhatsApp(res.cuenta as CuentaCanal);
+      setCfgAccessToken("");
+      if (res.verificacion?.conectado) {
+        notificar.exito(
+          "WhatsApp conectado con Meta",
+          `${res.verificacion.nombreVerificado || "Número"} (${res.verificacion.numero || cfgPhoneId})`
+        );
+      } else {
+        notificar.info(
+          "Cuenta guardada",
+          res.verificacion?.detalle || "Phone Number ID asociado a tu organización."
+        );
+      }
+      setModalConfigWhatsAppAbierto(false);
+    } finally {
+      setGuardandoConfigWA(false);
     }
   };
 
@@ -816,8 +1163,8 @@ export function VistaBandeja({
             vistaMovil === "chat" ? "hidden lg:flex" : "flex"
           )}
         >
-          {/* Buscador */}
-          <div className="p-3 border-b border-[#f1f3f5]">
+          {/* Buscador y acciones rápidas de WhatsApp */}
+          <div className="p-3 border-b border-[#f1f3f5] space-y-2">
             <div className="relative">
               <Search className="h-3.5 w-3.5 text-gray-400 absolute left-3 top-2.5" />
               <input
@@ -828,12 +1175,58 @@ export function VistaBandeja({
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#f8f9fa] border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-gray-900 text-gray-900 placeholder-gray-400"
               />
             </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setModoPlantillaNueva(true);
+                  setTelefonoPlantilla("");
+                  setModalPlantillaAbierto(true);
+                }}
+                className="flex-1 py-1.5 px-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Nuevo Chat</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => sincronizarBandeja(true)}
+                disabled={actualizandoBandeja}
+                title="Sincronizar mensajes"
+                className="p-1.5 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-700 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", actualizandoBandeja && "animate-spin")} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalConfigWhatsAppAbierto(true)}
+                title="Configurar cuenta WhatsApp Business"
+                className={cn(
+                  "p-1.5 rounded-xl border transition-colors cursor-pointer",
+                  !cuentaWhatsApp || cuentaWhatsApp.proveedor_cuenta_id.startsWith("PHONE_NUM_DEMO")
+                    ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                )}
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* Lista de Chats */}
           <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
-            {conversacionesFiltradas.map((c) => {
-              const estaActiva = c.id === conversacionActiva.id;
+            {conversacionesFiltradas.length === 0 ? (
+              <div className="p-6 text-center text-xs text-gray-500 space-y-2">
+                <MessageSquare className="h-6 w-6 text-gray-300 mx-auto" />
+                <p className="font-semibold text-gray-700">Sin conversaciones activas</p>
+                <p className="text-[11px] text-gray-400">
+                  Inicia un chat enviando una plantilla o espera un mensaje entrante por webhook.
+                </p>
+              </div>
+            ) : (
+              conversacionesFiltradas.map((c) => {
+                const estaActiva = conversacionActiva ? c.id === conversacionActiva.id : false;
               return (
                 <div
                   key={c.id}
@@ -882,13 +1275,58 @@ export function VistaBandeja({
                   </div>
                 </div>
               );
-            })}
+              })
+            )}
           </div>
         </div>
 
         {/* ================================================================ */}
         {/* COLUMNA 2: ÁREA DE CHAT EN VIVO Y LÍNEA DE TIEMPO INTERACTIVA */}
         {/* ================================================================ */}
+        {!conversacionActiva ? (
+          <div
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center bg-[#f7f8fa] p-6 text-center",
+              vistaMovil === "lista" ? "hidden lg:flex" : "flex"
+            )}
+          >
+            <div className="max-w-md bg-white border border-[#e5e7eb] rounded-2xl p-6 space-y-4 shadow-2xs">
+              <div className="h-12 w-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto">
+                <MessageCircle className="h-6 w-6 text-emerald-600" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-gray-900">Bandeja WhatsApp Cloud API</h3>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  {!cuentaWhatsApp || cuentaWhatsApp.proveedor_cuenta_id.startsWith("PHONE_NUM_DEMO")
+                    ? "Asocia el Phone Number ID real de tu organización para enviar y recibir mensajes de Meta WhatsApp."
+                    : "Aún no hay conversaciones registradas. Inicia una conversación con plantilla o envía un mensaje al número configurado."}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalConfigWhatsAppAbierto(true)}
+                  className="px-3.5 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-bold text-gray-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  <span>Configurar WhatsApp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModoPlantillaNueva(true);
+                    setTelefonoPlantilla("");
+                    setModalPlantillaAbierto(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Iniciar Chat con Plantilla</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div
           className={cn(
             "flex-1 flex flex-col bg-[#f7f8fa] min-w-0 h-full overflow-hidden relative",
@@ -1173,7 +1611,25 @@ export function VistaBandeja({
                       )}
                       <div className="flex items-center gap-1">
                         <span>{m.hora}</span>
-                        {esSaliente && <CheckCircle2 className="h-3 w-3 text-emerald-400" />}
+                        {esSaliente && (
+                          m.estadoEntrega === "fallido" ? (
+                            <span title={m.errorMeta || "Entrega fallida"} className="inline-flex items-center text-red-400">
+                              <AlertTriangle className="h-3 w-3" />
+                            </span>
+                          ) : m.estadoEntrega === "leido" ? (
+                            <span title="Leído">
+                              <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
+                            </span>
+                          ) : m.estadoEntrega === "entregado" ? (
+                            <span title="Entregado">
+                              <CheckCheck className="h-3.5 w-3.5 text-gray-400" />
+                            </span>
+                          ) : (
+                            <span title="Enviado">
+                              <Check className="h-3 w-3 text-gray-400" />
+                            </span>
+                          )
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1328,6 +1784,21 @@ export function VistaBandeja({
               </div>
 
               <div className="flex items-center gap-1">
+                {/* Botón Enviar Plantilla Meta */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModoPlantillaNueva(false);
+                    setTelefonoPlantilla(conversacionActiva.telefono);
+                    setModalPlantillaAbierto(true);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Enviar plantilla aprobada de Meta WhatsApp"
+                >
+                  <FileText className="h-3 w-3 text-gray-600" />
+                  <span className="hidden sm:inline">Plantilla</span>
+                </button>
+
                 {/* Botón Speeches Comerciales */}
                 <button
                   type="button"
@@ -1405,27 +1876,33 @@ export function VistaBandeja({
               {/* Botón de Envío */}
               <button
                 type="submit"
+                disabled={enviandoMensaje}
                 aria-label="Enviar mensaje"
                 className={cn(
-                  "h-[42px] px-3.5 sm:px-5 text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 mb-0",
+                  "h-[42px] px-3.5 sm:px-5 text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 mb-0 disabled:opacity-50",
                   modoNotaInterna
                     ? "bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white"
                     : "bg-gray-900 hover:bg-black active:bg-black text-white"
                 )}
               >
-                <Send className="h-4 w-4 text-emerald-400 shrink-0" />
+                {enviandoMensaje ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-emerald-400 shrink-0" />
+                ) : (
+                  <Send className="h-4 w-4 text-emerald-400 shrink-0" />
+                )}
                 <span className="hidden sm:inline">
-                  {modoNotaInterna ? "Guardar Nota" : "Enviar"}
+                  {enviandoMensaje ? "Enviando..." : modoNotaInterna ? "Guardar Nota" : "Enviar"}
                 </span>
               </button>
             </form>
           </div>
         </div>
+        )}
 
         {/* ================================================================ */}
         {/* COLUMNA 3: EXPEDIENTE Y CONTEXTO 360° DEL CLIENTE (DESKTOP) */}
         {/* ================================================================ */}
-        {mostrarExpedienteDesktop && (
+        {mostrarExpedienteDesktop && conversacionActiva && (
           <div className="hidden xl:flex w-72 shrink-0 border-l border-[#e5e7eb] bg-white flex-col p-5 overflow-y-auto space-y-5 animate-in fade-in slide-in-from-right-2 duration-150">
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -1565,7 +2042,7 @@ export function VistaBandeja({
       </div>
 
       {/* MODAL / DRAWER EXPEDIENTE 360° PARA MÓVIL */}
-      {mostrarFichaClienteMovil && (
+      {mostrarFichaClienteMovil && conversacionActiva && (
         <div className="fixed inset-0 z-50 xl:hidden flex flex-col justify-end">
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
@@ -2007,7 +2484,7 @@ export function VistaBandeja({
                   </label>
                   <input
                     type="email"
-                    value={conversacionActiva.correo}
+                    value={conversacionActiva?.correo || ""}
                     readOnly
                     className="w-full h-10 px-3 rounded-xl border border-gray-200 bg-gray-100 text-gray-600 font-medium text-xs truncate cursor-not-allowed"
                   />
@@ -2074,6 +2551,241 @@ export function VistaBandeja({
                       <span>Agendar y Compartir en WhatsApp</span>
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: INICIAR CONVERSACIÓN O ENVIAR PLANTILLA WHATSAPP */}
+      {modalPlantillaAbierto && (
+        <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-gray-900">
+                  {modoPlantillaNueva ? "Nuevo Chat WhatsApp (Plantilla)" : "Enviar Plantilla Meta"}
+                </h3>
+                <p className="text-[11px] text-gray-500">
+                  Obligatorio para iniciar contacto o fuera de la ventana de 24 horas.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalPlantillaAbierto(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={manejarEnviarPlantilla} className="space-y-3 text-xs">
+              {modoPlantillaNueva && (
+                <>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                      Teléfono destino (con código de país, sin +)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={telefonoPlantilla}
+                      onChange={(e) => setTelefonoPlantilla(e.target.value)}
+                      placeholder="5219981234567"
+                      className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                      Nombre del contacto (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={nombreContactoPlantilla}
+                      onChange={(e) => setNombreContactoPlantilla(e.target.value)}
+                      placeholder="Ej. Arq. Sofía Villaseñor"
+                      className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa]"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                    Nombre de plantilla aprobada
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={nombrePlantilla}
+                    onChange={(e) => setNombrePlantilla(e.target.value)}
+                    placeholder="ej. seguimiento_lead"
+                    className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-600 mb-1">Idioma</label>
+                  <input
+                    type="text"
+                    required
+                    value={idiomaPlantilla}
+                    onChange={(e) => setIdiomaPlantilla(e.target.value)}
+                    placeholder="es_MX"
+                    className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                <span className="text-[11px] text-gray-600">¿Solo prueba de Sandbox Meta?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNombrePlantilla("hello_world");
+                    setIdiomaPlantilla("en_US");
+                    setParametrosPlantilla("");
+                  }}
+                  className="text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                >
+                  Usar hello_world (en_US)
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                  Variables del cuerpo (separadas por coma, opcional)
+                </label>
+                <input
+                  type="text"
+                  value={parametrosPlantilla}
+                  onChange={(e) => setParametrosPlantilla(e.target.value)}
+                  placeholder="Sofía, Torre Aura"
+                  className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setModalPlantillaAbierto(false)}
+                  className="px-3.5 py-2 rounded-xl border border-gray-200 text-gray-600 font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={enviandoPlantilla}
+                  className="px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {enviandoPlantilla ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5 text-emerald-400" />
+                  )}
+                  <span>{enviandoPlantilla ? "Enviando..." : "Enviar Plantilla"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIGURACIÓN EXPLÍCITA DE CUENTA WHATSAPP POR ORGANIZACIÓN */}
+      {modalConfigWhatsAppAbierto && (
+        <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-gray-900">Cuenta WhatsApp Business</h3>
+                <p className="text-[11px] text-gray-500">
+                  Vincula explícitamente el Phone Number ID de Meta a esta organización.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalConfigWhatsAppAbierto(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={manejarGuardarConfigWhatsApp} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                  Nombre identificador de la línea
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={cfgNombreId}
+                  onChange={(e) => setCfgNombreId(e.target.value)}
+                  placeholder="WhatsApp Oficial Ventas"
+                  className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                  Phone Number ID (Meta API Setup)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={cfgPhoneId}
+                  onChange={(e) => setCfgPhoneId(e.target.value)}
+                  placeholder="Ej. 512345678901234"
+                  className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa] font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                  WABA ID (WhatsApp Business Account ID, opcional)
+                </label>
+                <input
+                  type="text"
+                  value={cfgWabaId}
+                  onChange={(e) => setCfgWabaId(e.target.value)}
+                  placeholder="Ej. 498765432109876"
+                  className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa] font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                  Access Token de la cuenta (opcional si se usa System Token)
+                </label>
+                <input
+                  type="password"
+                  value={cfgAccessToken}
+                  onChange={(e) => setCfgAccessToken(e.target.value)}
+                  placeholder="Dejar vacío para conservar el actual"
+                  className="w-full h-9 px-3 rounded-xl border border-gray-200 focus:border-gray-900 focus:outline-none bg-[#f8f9fa]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setModalConfigWhatsAppAbierto(false)}
+                  className="px-3.5 py-2 rounded-xl border border-gray-200 text-gray-600 font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoConfigWA}
+                  className="px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {guardandoConfigWA ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  )}
+                  <span>{guardandoConfigWA ? "Verificando..." : "Guardar y Verificar"}</span>
                 </button>
               </div>
             </form>

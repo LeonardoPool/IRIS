@@ -11,6 +11,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 # IRIS — MASTER ENGINEERING & PRODUCT INSTRUCTIONS
 
 > Fuente canónica también disponible en `.agent/rules.md`.
+> **Documentación de contexto para agentes de IA:** Todos los documentos `.md` de arquitectura, base de datos, API, seguridad e integraciones están centralizados en la carpeta [`agente/`](./agente/) (ver [`agente/INDICE_CONTEXTO_IA.md`](./agente/INDICE_CONTEXTO_IA.md)).
 
 ## 1. Rol del agente
 
